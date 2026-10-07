@@ -213,8 +213,8 @@ against DMS.
 
 ## 6. Data
 
-All open. **Note: the cloud environment used to draft this has no access to NCBI or Zenodo,
-so downloads must be run locally or on Colab.**
+All open. **Download everything on the cluster with `scripts/hpc/download_all.sh`**
+(see `scripts/hpc/README.md`).
 
 | Data | Use | Access |
 |---|---|---|
