@@ -1,227 +1,298 @@
-# Rare disease genetics: implementation brainstorm
+# Performative labels in variant effect prediction
 
-Source: BSML Project Proposals 2026/27, project 15, "Genetic variation and rare disease".
+*Research plan. BSML 2026/27, project 15 ("Genetic variation and rare disease").
+Supersedes the first brainstorm (see git history for the earlier version).*
 
-## 1. The question, restated
+## 0. Pitch
 
-The proposal's stated contribution is to **measure circularity**: how much of the reported
-accuracy of missense variant effect predictors comes from labels that were partly built
-from the same evidence the models use as input.
+Clinical labs now use computational predictors as evidence when they classify genetic
+variants. The ACMG criterion PP3/BP4 was calibrated for REVEL and others in late 2022, and
+for AlphaMissense in 2025. Those classifications land in ClinVar. ClinVar is then the main
+benchmark the same predictors are judged on. **The predictor helps write the answer key it
+is graded against.**
 
-Agree on the reframing in week one. We predict pathogenic vs benign for **missense variants
-already in ClinVar**, in a fixed set of rare disease genes, using open annotations. We do not
-run an association study on patient cohorts.
+This is *performative prediction* (Perdomo et al., 2020) observed in the wild, with
+timestamps.
 
-Working title: *How much of variant effect prediction is the label talking back?*
+We measure three things:
 
-### Where the circularity comes from
+1. whether this feedback loop is already visible in ClinVar;
+2. how much of the apparent accuracy of variant effect predictors it, and older forms of
+   circularity, account for;
+3. which biological signals survive once the circular ones are removed.
 
-| Type | Mechanism | How we expose it |
+We do this with an **interpretable model**, so the circularity can be *seen* in the learned
+feature effects, not only inferred from a drop in AUROC.
+
+**Target outputs:** a workshop paper (ML for biology/health), a preprint, and an
+open-source package with leakage-aware benchmark splits.
+
+## 1. Positioning: what is known, what is new
+
+| Already established | Reference |
+|---|---|
+| Two classic circularity types: variant overlap and gene-level label imbalance | Grimm et al. 2015 |
+| Gene identity dominates ClinVar benchmarks; predictor rankings change under within-gene evaluation | bioRxiv preprint, Aug 2026 ("Gene identity, not variant effect, dominates ClinVar benchmarks…"). **Read in week 1.** |
+| DMS (deep mutational scanning) assays are a non-circular check on predictors | ProteinGym (Notin et al. 2023); Genome Biology 2025 |
+| Calibrated predictor thresholds formally enter clinical classification | Pejaver et al. 2022; ClinGen 2025 extension incl. AlphaMissense |
+| Interpretable predictors exist, but they aim at accuracy, not at measuring circularity | e.g. DAVE (medRxiv 2025), SHAP-on-GBM tools |
+| Performative prediction: deployed models shift the data distribution they are evaluated on | Perdomo et al. 2020 and follow-ups. Almost all evidence is theoretical or simulated. |
+
+**Our contribution (gaps found in a quick literature search; confirm with a proper
+search in week 1):**
+
+- **C1, the main one.** Empirical evidence, with a causal-style design, of a *temporal
+  feedback loop* between predictors and ClinVar labels.
+- **C2.** A decomposition of reported accuracy into its circular components: gene
+  (replicating the 2026 preprint), homology, allele frequency, predictor scores, and
+  feedback.
+- **C3.** An interpretable model (EBM and a learned integer scorecard) that makes the
+  leakage visible, and lets us compare data-learned evidence weights with the ACMG points
+  system.
+- **C4.** Released splits and code, so other groups can evaluate without these leaks.
+
+## 2. Research questions and hypotheses
+
+**RQ1, feedback loop (the headline).** Have labels become more predictable *specifically* by
+the predictors that clinical guidelines endorse, after those endorsements?
+- *H1a.* After the calibration milestones (Dec 2022 for REVEL and others; Sept 2023 for the
+  AlphaMissense release; 2025 for its ClinGen calibration), agreement between new ClinVar
+  labels and endorsed predictors rises **more than** agreement with non-endorsed control
+  signals.
+- *H1b.* Variants resolved from VUS to P/LP or B/LB after these dates are resolved in the
+  direction of the endorsed predictor more often than DMS evidence would justify.
+- *H1c.* Mentions of PP3/BP4, REVEL and AlphaMissense in ClinVar submission texts increase
+  over time. This is descriptive, and gives direct evidence of usage.
+
+**RQ2, allele-frequency leakage.** Rarity drives benign labels (BA1/BS1) and
+pathogenic support (PM2).
+- *H2.* The learned effect of AF is strongest on the full test set and collapses on the
+  rare-only stratum (AF < 1e-4 in every ancestry group).
+
+**RQ3, gene identity (replication, not novelty).**
+- *H3.* Random split ≫ gene-held-out ≳ family-held-out. A gene-prior-only baseline reaches
+  a high global AUROC.
+
+**RQ4, what survives.**
+- *H4.* After all leaks are removed, conservation, structure and the ESM-2 zero-shot score
+  keep most of the signal measured against DMS. A small interpretable model comes close to
+  AlphaMissense on the honest benchmark.
+
+## 3. RQ1 in detail: measuring the feedback loop
+
+This is the most original part, and also the one most exposed to confounding. The design
+has to be convincing.
+
+### 3.1 Building the label history
+- From the monthly ClinVar archives (`tab_delimited/archive/variant_summary_YYYY-MM.txt.gz`
+  or `vcf_GRCh38/archive_2.0/`), reconstruct for each missense variant:
+  - the date it first received a confident P/LP or B/LB classification;
+  - any later reclassification (VUS → P/LP, VUS → B/LB, P ↔ B).
+- Group variants into **quarterly cohorts** by date of first confident classification,
+  2017 → 2026.
+- Get exact submission dates from `submission_summary.txt.gz`, which has
+  `DateLastEvaluated` per SCV.
+
+### 3.2 The central comparison: difference-in-differences
+
+Raw AUROC of AlphaMissense per cohort is **not** enough. The mix of variants classified
+changes over time (new genes, easier or harder cases), and AlphaMissense might simply be
+right. So we compare **endorsed** predictors with **control** signals:
+
+| Endorsed (used for PP3/BP4) | Controls (not used for PP3/BP4, or not used directly) |
+|---|---|
+| REVEL, AlphaMissense, BayesDel, CADD | ESM-2 / ESM1b zero-shot (precomputed, Brandes et al. 2023), a conservation-only score (phyloP), Grantham, **DMS scores** where available |
+
+Estimand, roughly:
+
+```
+Δ = [AUROC(endorsed, after) − AUROC(endorsed, before)]
+  − [AUROC(control,  after) − AUROC(control,  before)]
+```
+
+All AUROCs are computed **within gene** (macro over genes), so a changing gene mix cannot
+drive Δ. Results are shown as an **event-study plot**: Δ per quarter, relative to each
+milestone. Confidence intervals come from a cluster bootstrap over genes.
+
+How to read the outcomes:
+- If labels just became "easier", every signal improves and Δ ≈ 0.
+- If labels were partly *written by* the endorsed predictors, those gain more and Δ > 0.
+
+### 3.3 Additional evidence
+- **DMS anchor (H1b).** For genes with DMS data, take the variants resolved after the
+  milestones. Do the labels follow AlphaMissense in the cases where AlphaMissense and the
+  DMS disagree? This is the sharpest single test.
+- **Text evidence (H1c).** Plot the share of SCVs per quarter whose free-text description
+  mentions `PP3|BP4|REVEL|AlphaMissense|in silico`. It is simple and very readable. Use it
+  as figure 2 of the paper.
+- **Robustness.**
+  - ≥2-star labels only, expert panels only (ClinGen VCEPs, which explicitly apply calibrated
+    PP3);
+  - excluding genes that enter ClinVar for the first time after the milestone;
+  - alternative milestone dates (placebo dates should show no effect).
+
+### 3.4 Simulation: the loop with a known ground truth
+For ML reviewers, and as a sanity check:
+- Use DMS genes as "truth".
+- Simulate labelling rounds: a labeller combines noisy true evidence with PP3 points from a
+  predictor, with weight *w*, using the Tavtigian 2020 Bayesian points.
+- Each round, the predictor is re-evaluated, and optionally re-thresholded, on the
+  accumulated labels.
+- Show how the benchmark score inflates, and how predictor *rankings* distort, as a function
+  of *w* and the number of rounds.
+- This connects our empirical Δ to the performative-prediction literature, and shows the
+  failure mode cleanly.
+
+### 3.5 What if RQ1 comes back null?
+That is still a result: "no detectable feedback yet, with this power", which is useful for
+guideline bodies. The rest of the project (RQ2–RQ4) stands on its own. Report the minimum
+detectable effect.
+
+## 4. The interpretable model (RQ2–RQ4)
+
+### 4.1 Feature groups (one prefix per group, so ablations are column selections)
+
+| Group | Feature | Biology in one line | Circularity risk |
+|---|---|---|---|
+| A | AF: global, `grpmax` FAF95, per-ancestry, nhomalt, absent flag | Variants common in healthy people rarely cause rare disease | **High** (BA1/BS1/PM2) |
+| B | Conservation: phyloP (241 mammals), GERP | Positions unchanged across evolution matter | Low |
+| C | Chemistry: Grantham, BLOSUM62, domain | Drastic substitutions in functional regions break proteins | Low |
+| D | 3D structure graph from AlphaFold: contact degree, centrality, distance to annotated functional sites, pLDDT | Buried and central residues are fragile | Low |
+| E | ESM-2 zero-shot log-odds (one number) | Protein "grammar" learned from evolution | Low (never saw clinical labels) |
+| G | Gene: inheritance mode, LOEUF, missense Z | Recessive genes tolerate higher carrier frequency | Medium (gene shortcut) |
+| P | Endorsed predictors: REVEL, CADD, AlphaMissense | Used directly in PP3/BP4 | **High** (comparator and ablation only) |
+| H | *Experiment only:* count of known pathogenic variants within 8 Å | = the PM1 "hotspot" criterion | **Label leakage by construction** |
+
+### 4.2 Models
+- **EBM (Explainable Boosting Machine, `interpret`)** is the main model. It gives one shape
+  function per feature plus a few pairwise interactions, notably AF × inheritance mode.
+  Every prediction decomposes into readable contributions.
+- **Learned integer scorecard.** Sparse logistic regression with rounded coefficients
+  (or RiskSLIM if feasible), with 5–8 features. We compare the learned points with the ACMG
+  points system, before and after removing circular labels.
+- **Reference models**, used to measure the cost of interpretability: XGBoost on the same
+  features, AlphaMissense, REVEL.
+- **Calibration**: isotonic or Platt inside nested CV, stated as calibrated to ClinVar's
+  P:B ratio and not to a clinical prior.
+
+### 4.3 How interpretability shows the leakage
+- AF shape function on the full set vs the rare-only stratum: it should flatten (H2).
+- The scorecard's points for AF and for predictors, before and after removing circular
+  labels, compared with the ACMG points.
+- Adding feature group H inflates performance under random splits and vanishes under
+  gene-held-out splits. This makes the circularity directly visible in the model.
+
+## 5. Evaluation protocol (frozen before any fitting, in week 3)
+
+- **Splits:**
+  - random (only as the inflated reference);
+  - gene-held-out (primary);
+  - family-held-out, using connected components of a gene-similarity graph (MMseqs2 at ≥30%
+    identity, or HGNC gene groups);
+  - temporal.
+- **Strata:**
+  - rare-only;
+  - predictor-indeterminate band (REVEL ≈ 0.29–0.64, check against Pejaver 2022);
+  - SCVs whose text does or does not mention PP3/BP4;
+  - ≥2 stars;
+  - DMS genes.
+- **Metrics:**
+  - AUPRC (primary), AUROC, per-gene macro AUROC;
+  - Brier score, reliability diagram;
+  - Spearman correlation with DMS;
+  - cluster bootstrap over genes for every CI.
+- **Sanity baselines:**
+  - gene prior only;
+  - AF only;
+  - Grantham only;
+  - labels shuffled within gene.
+
+The final artefact is a **circularity waterfall**: reported AUPRC, minus gene, minus
+homology, minus AF, minus predictors, minus feedback, giving the honest AUPRC, checked
+against DMS.
+
+## 6. Data
+
+All open. **Note: the cloud environment used to draft this has no access to NCBI or Zenodo,
+so downloads must be run locally or on Colab.**
+
+| Data | Use | Access |
 |---|---|---|
-| **Variant overlap** (Grimm et al. 2015, type 1) | Tools trained on ClinVar or HGMD are then tested on ClinVar | Never use a precomputed score as the reference. Run a temporal split. |
-| **Gene prior** (Grimm type 2) | Most genes have mostly-P or mostly-B variants, so a model can learn "which gene" rather than "which variant" | Gene-held-out splits, a gene-prior-only baseline, and per-gene (macro) AUROC |
-| **AF → label** | ACMG BA1/BS1 call common variants benign; PM2 favours absent ones. Many ClinVar benign missense are benign *because* they are common | Ablate AF, and evaluate only on rare variants |
-| **Predictor → label** | ACMG PP3/BP4 use in silico scores (REVEL, CADD, and since ~2023 AlphaMissense, at the ClinGen thresholds from Pejaver et al. 2022) | Ablate predictor scores. Evaluate inside the "indeterminate" score band. Run a temporal analysis. |
-| **Homology** | Paralogs (SCN1A/2A/5A, KCNQ*, COL*) share sequence and pathogenic hotspots | Group genes by family or sequence cluster when splitting |
+| ClinVar `variant_summary` monthly archives and `submission_summary` | Labels, label history, SCV texts | NCBI FTP. Stream with polars/duckdb. |
+| PanelApp green genes | Gene set, inheritance mode | REST API |
+| gnomAD v4.1 exomes+genomes | Group A | Remote tabix on gene regions (`pysam`) |
+| phyloP / GERP bigWig | Group B | UCSC, `pyBigWig` |
+| AlphaFold DB structures, UniProt features | Groups C, D | REST; contact graph with `biopython` + `networkx` |
+| ESM-2 650M / precomputed ESM1b (Brandes 2023) | Group E and the RQ1 control | Hugging Face / published downloads |
+| gnomAD constraint | Group G | gnomAD downloads |
+| REVEL, CADD, BayesDel (dbNSFP fields) | Group P, RQ1 endorsed | myvariant.info batch API |
+| AlphaMissense | Group P, RQ1 endorsed | Zenodo |
+| ProteinGym DMS, MaveDB | External truth, RQ1 anchor, simulation | Downloads / API |
 
-## 2. Hypotheses we can actually test
+**Identifier hygiene.** Use MANE Select transcript ↔ UniProt canonical isoform throughout.
+Check that the reference amino acid matches, and log the dropped variants.
 
-- **H1 (AF leakage).** AF is the top SHAP feature on the full test set. On the subset with
-  AF < 1e-4 in every ancestry group, where BA1/BS1 could not have been applied, AF's
-  contribution collapses and AUPRC drops by a large margin.
-- **H2 (gene prior).** A gene-prior-only model, which predicts the training-set pathogenic
-  fraction of the gene, gets a high global AUROC under random splits. Most of the gap
-  between random and gene-held-out splits is this effect.
-- **H3 (predictor leakage).** Models that use REVEL/CADD/SIFT/PolyPhen lose more performance
-  between ClinVar and an external lab-measured benchmark (DMS) than ESM-2 zero-shot does.
-- **H4 (circularity is rising).** Variants first classified after the ClinGen PP3/BP4
-  calibration (late 2022) and the AlphaMissense release (Sept 2023) agree more with
-  REVEL/AlphaMissense than variants classified before. This inflates AlphaMissense's measured
-  accuracy on recent labels. *This is the most original angle, and cheap: ClinVar keeps
-  dated archives.*
-- **H5 (ancestry).** A model given only global AF makes more false-pathogenic calls on
-  variants that are rare in NFE but common in AFR, SAS or EAS. Using `grpmax` FAF95 reduces
-  these errors.
+## 7. Timeline (~13 weeks)
 
-The deliverable can be a **circularity decomposition**, a single waterfall chart:
-
-```
-reported AUPRC (random split, all features, all variants)
-  − gene prior            (random → gene-held-out)
-  − homology              (gene-held-out → family-held-out)
-  − AF label leakage      (all → rare-only test set)
-  − predictor leakage     (all → indeterminate-band / pre-2022 labels)
-  = "honest" AUPRC, checked against DMS
-```
-
-## 3. Data pipeline
-
-All data is open and needs no data use agreement.
-
-### 3.1 Genes
-- **PanelApp (Genomics England)**: green (high-evidence) genes, through the REST API.
-  Take the union of panels, then keep 300–600 genes.
-- Selection rule, fixed before looking at results: at least N₁ P/LP **and** at least N₂ B/LB
-  missense variants at ≥1 star (start with N₁ = N₂ = 5). Record that this rule biases the
-  set towards well-studied genes.
-- **Force-include genes that have clinical DMS assays** in ProteinGym/MaveDB (BRCA1, TP53,
-  PTEN, MSH2, CBS, GCK, HMBS, LDLR, KCNH2, SCN5A, … check the list). These are always held
-  out of training.
-- Keep mode of inheritance (AD/AR/XL) from PanelApp. It matters for AF.
-
-### 3.2 Labels: ClinVar
-- `variant_summary.txt.gz` (GRCh38), or the VCF. Stream it with **polars/duckdb**, never pandas
-  in full.
-- Keep: missense on the **MANE Select** transcript; P, LP, B or LB; review status ≥1 star with
-  no conflicts. Sensitivity analyses: ≥2 stars only, and P/B only (drop "likely").
-- Deduplicate at protein level (gene, position, ref aa, alt aa). Different nucleotide changes
-  that give the same amino acid change are one example.
-- **Dated archives** (`vcf_GRCh38/archive_2.0/`) give each variant's first-classification date,
-  for H4 and the temporal split.
-- **Optional, high value:** `submission_summary.txt.gz` has free-text descriptions per
-  submission (SCV). Grep them for `PP3|BP4|REVEL|in silico|computational` and
-  `BA1|BS1|PM2|gnomAD|frequency` to flag which labels *say* they used predictors or AF.
-  Coverage will be partial, but even partial coverage gives a direct circularity
-  stratification.
-
-### 3.3 Features
-Group the features so the ablations are clean:
-
-| Group | Features | Source / access |
-|---|---|---|
-| **A. Frequency** | global AF, `grpmax` FAF95, per-ancestry AF, nhomalt, an explicit "absent from gnomAD" flag (absence is informative, not missing at random), AF / max credible AF for the gene's inheritance mode (Whiffin et al. 2017) | gnomAD v4.1 exomes+genomes. Use **remote tabix** on the public per-chromosome VCFs with `pysam`, restricted to the gene regions. Do not download the full release. The GraphQL API is a fallback (rate limited). |
-| **B. Conservation** | phyloP (241 mammals and 100 vertebrates), phastCons, GERP++ | UCSC bigWig through `pyBigWig` (remote reads work) |
-| **C. Protein / structure** | Grantham, BLOSUM62, aa property deltas, relative position, Pfam/InterPro domain, AlphaFold pLDDT, relative solvent accessibility | UniProt, InterPro API, AlphaFold DB (PDB per protein, then DSSP or a simple neighbour count) |
-| **D. Gene / phenotype** | inheritance mode, LOEUF and missense Z, HPO term count and top-level HPO categories | gnomAD constraint table, HPO `genes_to_phenotype.txt`. These are gene-level, so they mostly help across genes, which is exactly what gene-held-out tests. |
-| **E. Precomputed predictors** | REVEL, CADD, SIFT, PolyPhen-2, (BayesDel, MetaRNN) | **myvariant.info** batch API serves the dbNSFP fields and avoids the dbNSFP download and licence |
-| **F. PLM** | ESM-2 650M zero-shot masked-marginal log-odds (mut vs wt); embedding at the mutated position (wt context), 1280-d, reduce with PCA to ~32 for the tree models | Hugging Face `facebook/esm2_t33_650M_UR50D`, Colab T4 fp16 |
-| **Comparator** | AlphaMissense | Zenodo `AlphaMissense_aa_substitutions.tsv.gz`, joined on UniProt accession + protein variant |
-
-**Notes on ESM-2 compute.** True masked marginals need one forward pass per *variant
-position*, not every position. Batch the masked copies. For proteins over 1022 aa, use
-overlapping windows centred on the position. Budget: a few thousand positions across a few
-hundred proteins takes a few GPU-hours on a T4. Fallback: wt-marginals (one pass per protein)
-or the precomputed genome-wide ESM1b scores from Brandes et al. (2023).
-
-**Identifier hygiene is the main engineering risk.** Fix one coordinate system early: GRCh38
-genomic, plus MANE Select ENST, plus the matching UniProt canonical isoform. Check that the
-reference amino acid in ClinVar's HGVS.p matches the protein sequence at that position. Drop
-and count mismatches. AlphaMissense and ESM must use the same isoform.
-
-### 3.4 External, non-circular test sets
-- **ProteinGym DMS substitutions** (human clinical genes) and **MaveDB**. Labels come from lab
-  assays. Metrics: Spearman between score and assay, and AUROC against the assay's own
-  functional classes where they exist (e.g. BRCA1 SGE, Findlay et al. 2018).
-- Do **not** use the ProteinGym *clinical* benchmark as external. It is ClinVar.
-- Caveat: DMS measures one molecular function, not disease. It is a check on direction, not a
-  gold standard.
-
-## 4. Evaluation, frozen before any fitting
-
-- **Splits**
-  1. random (shown only as the inflated reference)
-  2. **gene-held-out** `GroupKFold` (primary)
-  3. **family-held-out**, grouping genes by HGNC gene group or MMseqs2 clusters at ≥30% identity
-  4. **temporal**: train on labels first classified before 2021, test on labels from 2023 onwards
-- **Test-set strata** (the circularity lenses)
-  - rare-only: AF < 1e-4 in every ancestry group, or absent
-  - predictor-indeterminate: REVEL in the band where ClinGen gives no PP3/BP4 (≈0.29–0.64,
-    check Pejaver et al. 2022)
-  - text-flagged: SCVs that mention PP3/BP4 vs those that don't (§3.2)
-  - ≥2-star only
-- **Metrics:** AUPRC (primary, under imbalance), AUROC, **per-gene macro AUROC** over genes
-  with both classes, Brier score, reliability diagram and ECE. **Gene-level cluster bootstrap**
-  for every CI, since variants within a gene are not independent.
-- **Calibration note:** probabilities are calibrated to ClinVar's P:B ratio, not to a clinical
-  prior. Report this, and optionally show prior-shift recalibration.
-- **Sanity baselines**
-  - gene-prior-only
-  - "AF only" logistic regression
-  - "Grantham only"
-  - labels shuffled within gene (should give per-gene AUROC ≈ 0.5)
-
-## 5. Models and ablation grid
-
-Models: logistic regression (standardised, L2), XGBoost (`scale_pos_weight`, tuned with
-nested GroupKFold), ESM-2 zero-shot (no training), ESM-2 embeddings + logistic regression,
-AlphaMissense (no training).
-
-| Run | A freq | B cons | C prot | D gene | E predictors | F PLM |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|
-| full | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| −predictors | ✓ | ✓ | ✓ | ✓ |  | ✓ |
-| −AF | | ✓ | ✓ | ✓ | ✓ | ✓ |
-| −AF −predictors ("clean") | | ✓ | ✓ | ✓ | | ✓ |
-| PLM only | | | | | | ✓ |
-| classic (no PLM) | ✓ | ✓ | ✓ | ✓ | ✓ | |
-
-Cross every run with every split and every stratum in §4 into one long results table
-(`run × split × stratum × metric`), then plot. Use SHAP for the XGBoost runs, especially to
-show AF dominance moving between the full and rare-only strata.
-
-**Optional controlled experiment.** A simulated circular labeller. Take the DMS genes, where
-the true functional effect is known. Simulate ACMG point-based labelling (Tavtigian et al.
-2020) in which a fraction *p* of variants receive PP3/BP4 points from REVEL. Train and test
-on the simulated labels and plot measured AUROC against *p*. This shows the inflation
-mechanism with a known ground truth.
-
-## 6. Suggested repo layout
-
-```
-config/            genes.yaml, thresholds.yaml, splits.yaml (frozen in week 3)
-src/data/          panelapp.py, clinvar.py, gnomad_tabix.py, conservation.py,
-                   dbnsfp_myvariant.py, alphamissense.py, dms.py, idmap.py
-src/features/      protein.py, esm2.py (zero-shot + embeddings)
-src/eval/          splits.py, strata.py, metrics.py (cluster bootstrap), calibration.py
-src/models/        baselines.py, logreg.py, xgb.py
-notebooks/         exploration only, no logic that results depend on
-data/              gitignored; raw/ interim/ processed/ (parquet)
-results/           results table + figures
-```
-Tooling: Python 3.11, polars/duckdb, pysam, pyBigWig, requests, scikit-learn, xgboost, shap,
-torch + transformers. Use a `Makefile` or Snakemake so `make data features eval` rebuilds
-everything.
-
-## 7. Timeline (~13 weeks, team of 2–5)
+The fastest path to the headline result comes first. RQ1 needs **no gnomAD and no GPU**:
+only ClinVar archives, AlphaMissense, REVEL and precomputed ESM1b.
 
 | Week | Milestone |
 |---|---|
-| 1 | Agree the reframing. Read ACMG/AMP 2015, Grimm 2015, Pejaver 2022, the AlphaMissense paper and Meier 2021 (ESM-1v). The genetics glossary owner writes a one-page vocab sheet. |
-| 2 | Gene list (PanelApp + DMS genes). ClinVar filtered to MANE missense. Identifier mapping with mismatch report. |
-| 3 | **Freeze the evaluation**: splits, strata, metrics, baselines, committed before any model is trained. |
-| 4–5 | Feature groups A–E (gnomAD tabix, bigWig, myvariant, structure). Gene-prior and single-feature baselines. |
-| 6 | Logistic regression + XGBoost full run, SHAP. First random-vs-gene-held-out gap (H2). |
-| 7–8 | Ablation grid and strata (H1, H3). ClinVar archive dating for H4. |
-| 8–9 | ESM-2 zero-shot + embeddings on Colab. AlphaMissense on identical splits. |
-| 10 | DMS external evaluation. Ancestry analysis (H5). |
-| 11 | Optional: simulated circular labeller, SCV text flags. |
-| 12–13 | Circularity waterfall, write-up, cleanup. |
+| 1 | Read the Aug 2026 gene-identity preprint, Perdomo 2020, Pejaver 2022, ACMG 2015 and Grimm 2015. Do a proper literature search on "ClinVar circularity temporal / PP3 feedback". Write the genetics vocabulary sheet. |
+| 2 | Gene set. ClinVar archives parsed into a label-history table. **First figure: SCV text mentions over time (H1c).** |
+| 3 | Freeze the evaluation protocol. Join AlphaMissense, REVEL and ESM1b. |
+| 4–5 | **RQ1 MVP: event-study / DiD plot (H1a).** DMS anchor (H1b). Decide go/no-go on RQ1 as the headline. |
+| 6–7 | Feature groups A–D and G (gnomAD tabix, bigWig, AlphaFold graph). Baselines. Gene-held-out vs random (H3). |
+| 8–9 | EBM and scorecard. AF strata (H2). Group-H leakage experiment. XGBoost reference. |
+| 10 | DMS external evaluation (H4). Circularity waterfall. |
+| 11 | Simulation of the loop (§3.4). Robustness checks for RQ1. |
+| 12–13 | Workshop paper draft (4–6 pages), preprint, package release, cleanup. |
 
-**Cut order if time runs short:** simulated labeller, then SCV text mining, then
-family-held-out split, then ESM embeddings (keep zero-shot).
+**Cut order if short on time:** simulation, family-held-out split, group D, scorecard
+(keep EBM).
 
-**Roles (for 2 people):** (1) data and genetics: ClinVar, gnomAD, ID mapping, DMS;
-(2) modelling and evaluation: splits, metrics, models, ESM. Swap code review weekly.
+**Roles for 2 people:**
+1. Label history, RQ1 and DMS.
+2. Features, interpretable models and evaluation.
 
-## 8. Risks and mitigations
+Code review is weekly and swapped between the two.
+
+## 8. Deliverables
+
+- **Paper figures (plan them now):**
+  1. Schematic of the loop: predictor → PP3 → ClinVar → benchmark → predictor.
+  2. SCV mentions of PP3/REVEL/AlphaMissense over time.
+  3. Event-study plot of Δ around the milestones.
+  4. Circularity waterfall.
+  5. EBM shape function of AF: full set vs rare-only.
+  6. Learned scorecard vs ACMG points.
+- **Venues:** ML for computational biology or health workshops (NeurIPS / ICLR workshops,
+  MLCB, ML4H). Check the deadlines in week 1 and pick one as the hard internal deadline.
+- **Code:** `pip install`-able package with the splits, strata and evaluation functions,
+  compatible with the ProteinGym format.
+
+## 9. Risks
 
 | Risk | Mitigation |
 |---|---|
-| No truly independent test set | DMS as external check. Strata and temporal splits as internal lenses. State the limitation explicitly. |
-| Isoform and coordinate mismatches silently corrupt the joins | MANE-only, ref-aa check, report the dropped counts |
-| gnomAD scale | Remote tabix on gene regions only, cached as parquet |
-| Too few benign variants in rare genes | ≥1-star B/LB, per-gene macro AUROC only over eligible genes. Report the class balance per gene. |
-| Ancestry confounding | Use per-group AF and grpmax FAF95. Error analysis by ancestry-differential AF (H5). |
-| DMS ≠ disease | Use it for direction and ranking only. Report per-assay results, never a pooled "accuracy". |
-| Leakage through tuning | Nested GroupKFold. The test strata are never used for model selection. |
+| RQ1 confounded by changing case mix | Within-gene AUROC, DiD against control signals, placebo dates, excluding newly added genes |
+| The control signals are themselves partly used by labs (e.g. conservation under PP3) | Use DMS as the cleanest control. Report each control separately. |
+| Too few post-2023 confident labels in DMS genes | Pool milestones, use 1-star labels with a sensitivity analysis, report the minimum detectable effect |
+| Overlap with the Aug 2026 preprint | Treat gene identity as a replication. The headline is RQ1, which it does not cover (verify). |
+| Coordinate and isoform mismatches | MANE only, ref-aa check, dropped-variant log |
+| Ancestry bias in AF | Per-group AF and `grpmax`. Error analysis on ancestry-differential variants. |
 
-## 9. Key references
-- Richards et al. 2015, ACMG/AMP variant interpretation guidelines
-- Grimm et al. 2015, *Hum Mutat*: two types of circularity in predictor evaluation
-- Pejaver et al. 2022, *AJHG*: calibration of computational tools for PP3/BP4
-- Tavtigian et al. 2020: Bayesian points system for ACMG
-- Whiffin et al. 2017: maximum credible allele frequency
-- Cheng et al. 2023, *Science*: AlphaMissense
-- Meier et al. 2021 (ESM-1v zero-shot); Lin et al. 2023 (ESM-2); Brandes et al. 2023 (ESM1b genome-wide)
-- Notin et al. 2023: ProteinGym; Esposito et al. 2019: MaveDB
-- Chen et al. 2024, gnomAD v4
+## 10. Key references
+- Perdomo, Zrnic, Mendler-Dünner, Hardt 2020, *Performative Prediction* (ICML)
+- Grimm et al. 2015, *Hum Mutat*: circularity in predictor evaluation
+- *Gene identity, not variant effect, dominates ClinVar benchmarks of missense pathogenicity
+  predictors*, bioRxiv 2026
+- Richards et al. 2015: ACMG/AMP guidelines. Tavtigian et al. 2020: Bayesian points.
+- Pejaver et al. 2022, *AJHG*: PP3/BP4 calibration. ClinGen 2025: calibration of additional
+  tools.
+- Cheng et al. 2023, *Science*: AlphaMissense. Brandes et al. 2023: ESM1b genome-wide.
+  Lin et al. 2023: ESM-2.
+- Notin et al. 2023: ProteinGym. Esposito et al. 2019: MaveDB.
+- Lou et al. 2013 / Nori et al. 2019: GA²M / InterpretML (EBM). Ustun & Rudin 2019: RiskSLIM.
+- Whiffin et al. 2017: maximum credible allele frequency. Chen et al. 2024: gnomAD v4.
