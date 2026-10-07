@@ -39,6 +39,8 @@ def slice_chrom(job):
     out_path = os.path.join(out_dir, f"{chrom}.tsv.gz")
     if os.path.exists(out_path + ".done"):
         return chrom, "skipped"
+    # htslib caches remote .tbi indexes in the working directory; keep them with the output.
+    os.chdir(out_dir)
     vcf = pysam.VariantFile(template.format(chrom=chrom))
     fields = [f for f in INFO_FIELDS if f in vcf.header.info]
     seen = set()
@@ -83,6 +85,7 @@ def main():
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args()
 
+    args.out_dir = os.path.abspath(args.out_dir)
     os.makedirs(args.out_dir, exist_ok=True)
     regions = read_bed(args.bed)
     jobs = [(c, sorted(r), args.template, args.out_dir) for c, r in regions.items()]
