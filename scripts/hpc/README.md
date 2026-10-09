@@ -3,6 +3,24 @@
 One command fetches every dataset listed in `docs/brainstorm.md` §6 into `$DATA_DIR`.
 It is resumable, idempotent and logs to `$DATA_DIR/logs/`.
 
+## Bocconi HPC notes
+
+What public sources say. The official pages could not be opened from where this was
+written, so check what follows against your account email or with IT.
+
+- **Hardware.** SLURM cluster of about 24 nodes, 752 cores, InfiniBand, several GPU types,
+  about 250 TB of storage.
+- **Access.** Aimed at faculty and PhD students. MSc DSBA/AI students get an account
+  through the "Introduction to Linux for HPC" course. **If you don't have an account yet,
+  ask the BSML board** (BSML ran an HPC tutorial in April 2025) or Bocconi's Technology
+  Office.
+- **Off campus.** SSH to the login host on `unibocconi.it` needs the Bocconi VPN.
+
+**First step on the cluster:** `bash scripts/hpc/check_cluster.sh --compute`. It reports:
+- the partitions and accounts to put in `download_all.sbatch`;
+- where there is space for `DATA_DIR`;
+- whether each data host is reachable from the login node *and* from a compute node.
+
 ## Setup (once)
 
 ```bash
