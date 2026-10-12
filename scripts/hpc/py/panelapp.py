@@ -9,7 +9,8 @@ import csv
 import json
 import os
 import time
-import urllib.request
+
+from web import open_url
 
 DEFAULT_BASE = "https://panelapp.genomicsengland.co.uk/api/v1/"
 FIELDS = ["hgnc_symbol", "hgnc_id", "panel_id", "panel_name", "panel_version",
@@ -19,7 +20,7 @@ FIELDS = ["hgnc_symbol", "hgnc_id", "panel_id", "panel_name", "panel_version",
 def get_json(url, retries=5):
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
+            with open_url(url, timeout=60) as resp:
                 return json.load(resp)
         except Exception:
             if attempt == retries - 1:

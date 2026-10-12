@@ -4,7 +4,8 @@ import argparse
 import re
 import sys
 import urllib.parse
-import urllib.request
+
+from web import open_url
 
 _HREF = re.compile(r'href="([^"?#]+)"', re.IGNORECASE)
 
@@ -13,7 +14,7 @@ def list_links(url, timeout=60):
     """Return the hrefs of an HTTP directory listing, relative to ``url``."""
     if not url.endswith("/"):
         url += "/"
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+    with open_url(url, timeout=timeout) as resp:
         html = resp.read().decode("utf-8", errors="replace")
     links = []
     for href in _HREF.findall(html):

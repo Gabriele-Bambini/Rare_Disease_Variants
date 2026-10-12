@@ -11,8 +11,9 @@ import json
 import os
 import time
 import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+from web import open_url
 
 API = "https://alphafold.ebi.ac.uk/api/prediction/{acc}"
 
@@ -31,7 +32,7 @@ def accessions_for_genes(uniprot_tsv, genes):
 def _get(url, retries=4):
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
+            with open_url(url, timeout=60) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
             if e.code == 404:
