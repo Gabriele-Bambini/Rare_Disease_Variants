@@ -77,3 +77,24 @@ def test_derive_transitions(write_gz, tmp_path):
 def test_quarter_of():
     assert [quarter_of(m) for m in ["2017-01", "2017-04", "2017-07", "2017-10"]] == [
         "2017Q1", "2017Q2", "2017Q3", "2017Q4"]
+
+
+def test_attach_submitters_takes_first_polarity_matching_scv():
+    from rdv.history import attach_submitters
+
+    first = pl.DataFrame({
+        "allele_id": [1, 2, 3], "snapshot": ["2022-04"] * 3,
+        "label": pl.Series(["PLP", "BLB", "PLP"], dtype=pl.Enum(["VUS", "PLP", "BLB", "CONFLICT", "OTHER"])),
+        "route": ["new", "from_vus", "new"],
+    })
+    universe = pl.DataFrame({"AlleleID": [1, 2, 3], "VariationID": [11, 12, 13], "gene": ["A", "B", "C"]})
+    scv = pl.DataFrame({
+        "variation_id": [11, 11, 11, 12, 13],
+        "scv": ["SCV000500", "SCV000020", "SCV000900", "SCV000030", "SCV000040"],
+        "label": ["PLP", "PLP", "BLB", "VUS", "BLB"],  # 11: two PLP SCVs; 12: no BLB SCV; 13: only the opposite polarity
+        "submitter": ["Lab late", "Lab first", "Lab other", "Lab vus", "Lab opposite"],
+    })
+    out = attach_submitters(first, universe, scv).sort("allele_id")
+    assert out["submitter"].to_list() == ["Lab first", None, None]
+    assert out["scv"].to_list() == ["SCV000020", None, None]
+    assert out["gene"].to_list() == ["A", "B", "C"]

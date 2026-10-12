@@ -143,3 +143,30 @@ def quarter_of(snapshot: str) -> str:
     """'2023-01' -> '2023Q1' (ClinVar archive months are quarter starts here)."""
     y, m = snapshot.split("-")
     return f"{y}Q{(int(m) - 1) // 3 + 1}"
+
+
+def attach_submitters(first_confident: pl.DataFrame, universe: pl.DataFrame, scv: pl.DataFrame) -> pl.DataFrame:
+    """Add the likely labelling submitter to each first-confident variant.
+
+    Among the variant's SCVs whose polarity (P/LP or B/LB) equals the entry label, take the one with
+    the lowest accession number: accessions grow with time of first submission, so this is the first
+    lab to assert the label the variant now carries. Approximate: a re-evaluated SCV keeps its
+    accession. Variants with no polarity-matching SCV get a null submitter.
+
+    `universe` needs AlleleID, VariationID, gene; `scv` needs variation_id, scv, label, submitter.
+    """
+    f = first_confident.with_columns(pl.col("label").cast(pl.Utf8)).join(
+        universe.select(pl.col("AlleleID").alias("allele_id"), "VariationID", "gene"), on="allele_id"
+    )
+    s = scv.select(
+        "variation_id", "scv", pl.col("label").cast(pl.Utf8), "submitter",
+        pl.col("scv").str.slice(3).cast(pl.Int64).alias("acc"),
+    )
+    return (
+        f.join(s, left_on=["VariationID", "label"], right_on=["variation_id", "label"], how="left")
+        .sort("allele_id", "acc", nulls_last=True)
+        .group_by("allele_id", maintain_order=True)
+        .first()
+        .drop("acc")
+        .sort("allele_id")
+    )
