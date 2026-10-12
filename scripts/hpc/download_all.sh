@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/config.env"
 PY="$HERE/py"
 
-ALL_STAGES=(clinvar_current clinvar_archives mane panelapp uniprot alphamissense
+ALL_STAGES=(clinvar_current clinvar_archives mane panelapp uniprot alphamissense revel esm1b_scores
             gnomad_constraint hpo proteingym conservation gnomad_slices alphafold esm)
 STAGES=("$@")
 [[ ${#STAGES[@]} -eq 0 ]] && STAGES=("${ALL_STAGES[@]}")
@@ -103,6 +103,19 @@ stage_alphamissense() {
   for f in AlphaMissense_hg38.tsv.gz AlphaMissense_aa_substitutions.tsv.gz AlphaMissense_gene_hg38.tsv.gz; do
     fetch "$base/$f" "$DATA_DIR/alphamissense" || return 1
   done
+}
+
+stage_revel() {
+  # REVEL v1.3 precomputed scores, both genome builds (Zenodo, ODbL).
+  fetch "$REVEL_URL" "$DATA_DIR/revel" revel-v1.3_all_chromosomes.zip
+}
+
+stage_esm1b_scores() {
+  # Precomputed ESM1b log-likelihood ratios for every missense change of every human UniProt
+  # isoform (Brandes et al. 2023), one CSV per isoform inside the zip. Hosted on a Hugging Face
+  # space under CC BY-NC 4.0: research use only.
+  fetch "$ESM1B_SCORES_URL" "$DATA_DIR/esm1b" || return 1
+  fetch "${ESM1B_SCORES_URL%/*}/isoform_list.csv" "$DATA_DIR/esm1b"
 }
 
 stage_gnomad_constraint() {
