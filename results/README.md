@@ -94,3 +94,65 @@ mention it *less* (-0.39), and the entry term is largely All of Us joining with 
 Known limits: the current `submission_summary` keeps only each SCV's latest text and date, so a
 re-evaluated SCV moves to its newest quarter; variants withdrawn from ClinVar are invisible;
 snapshot resolution is one quarter.
+
+# Week 3 to 5: RQ1, did endorsed predictors gain on new labels? (`fig_rq1.png`)
+
+Analysis exactly as frozen in [docs/protocol.md](../docs/protocol.md) (commit `ec2fd38`), with the
+post-hoc additions listed in its Deviations log. Cohort: 224,291 variants that entered ClinVar as
+P/LP or B/LB after 2017-01. Scores joined on GRCh38 coordinates: AlphaMissense 97.6% of the
+universe, REVEL 99.1%, ESM1b 97.5% (1,073 wild-type residue mismatches, left unscored). Metric:
+within-gene weighted AUC with lab-quarter weights (cap 500), gene-cluster bootstrap with 2,000 replicates.
+
+## Primary tests
+
+| | Treated vs control | Difference-in-differences | 95% CI | Detectable effect | Holm p |
+|---|---|---|---|---|---|
+| P1, Dec 2022 | REVEL vs ESM1b | -0.0100 | -0.034 to +0.010 | 0.031 | 0.72 |
+| P2, Sep 2023 | AlphaMissense vs ESM1b | -0.0004 | -0.019 to +0.018 | 0.026 | 0.93 |
+
+Within-gene AUC, before to after: REVEL 0.912 to 0.894, ESM1b 0.888 to 0.881 (P1); AlphaMissense
+0.918 to 0.921, ESM1b 0.878 to 0.881 (P2). Nothing changes the sign or the conclusion when the cap is
+250, 1000 or absent, when the two largest labs are removed, or when the post window starts one
+snapshot later (clean boundary: -0.009 and -0.005). **Decision rule of the protocol:** neither test
+reaches Go. P2 is an informative null (detectable effect 0.026, below 0.03); P1 is underpowered by the
+letter of the rule (0.031).
+
+## How much to trust the null
+
+- **The design's noise floor is above its bootstrap error.** Placebo windows give -0.008 and -0.025
+  (P1; the second has a 95% interval that excludes zero) and -0.001 and -0.005 (P2). Variation across
+  windows from lab and batch composition is as large as either primary estimate, so effects under
+  about 0.02 to 0.03 are out of reach.
+- **The instrument does not see explicit predictor use.** Among labels entering from 2019 on, those
+  whose own submission text cites PP3/BP4 (8,974, against 100,276 with other text) show no larger
+  REVEL-over-ESM1b advantage than the others: -0.003 (-0.032 to +0.022). The same for "in silico"
+  wording (72,517 against 31,675): +0.008 (-0.024 to +0.036). Case mix moves every predictor together:
+  "in silico" labels are easier for all of them, Grantham included (+0.03), which is why a difference
+  between predictors cancels it. Only 9 of 201,081 labels are first asserted by a submission that names
+  REVEL, because the REVEL-citing labs (All of Us, Color, 3billion) are rarely the first to label a variant.
+- **A correlated control absorbs signal.** Within a gene, REVEL and ESM1b ranks correlate at 0.57
+  (REVEL and AlphaMissense 0.66, AlphaMissense and ESM1b 0.67). If labs steered labels along REVEL,
+  ESM1b would partly move with them, so a differential recovers well under half of such a shift.
+  This is a back-of-envelope argument, not something measured here.
+- **The only positive-looking signal is not usable.** AlphaMissense minus ESM1b is 0.125 (0.060 to
+  0.173) in the 2023H2 bin, but that bin holds 770 weighted pairs, and it covers labels that entered
+  between April and September 2023 (bins are named by snapshot month: H1 is the January and April
+  snapshots, H2 the July and October ones), nearly all before the 19 September release. The same
+  difference sits at 0.02 to 0.06 in every other bin, including years when AlphaMissense did not exist.
+- **Subgroup results are noise-level.** 3 of the 19 secondary intervals exclude zero (VUS-resolved
+  entries for P1, -0.059; two labs with under 120 pairs in one window), about what chance gives.
+
+## What this means
+
+No differential gain of an endorsed predictor on new labels is detectable at about 0.02 to 0.03 AUC. That
+is not evidence that no loop exists, because the same design cannot detect labels that say, in their own
+text, that they used a predictor. Options, with the first two combinable:
+
+1. Replace the AUC difference with a model of the label that conditions on the control: within gene,
+   does the label depend on REVEL beyond ESM1b, and does that partial dependence change after the
+   milestone? This uses continuous variation and is not diluted by the control's correlation with the
+   treated predictor. It needs its own pre-specified protocol, written before it is run.
+2. Run the simulation of section 3.4 of the plan to show what size of loop this design can and cannot
+   detect, and report the null as a bound.
+3. Make the circularity decomposition (RQ2 to RQ4) the headline and keep RQ1 as a bounded, honest
+   negative result, as the plan's section 3.5 allows.

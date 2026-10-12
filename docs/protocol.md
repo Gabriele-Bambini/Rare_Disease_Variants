@@ -103,4 +103,26 @@ bootstrap SE and the minimum detectable effect, 2.8 x SE.
 
 ## Deviations log
 
-(none yet)
+Nothing in sections 1 to 8 was changed after the primary results were seen. What follows is
+everything done after the freeze, in order.
+
+**2026-10-12, before any predictor was compared with any label.** `join_scores.py` joined AlphaMissense,
+REVEL, ESM1b, Grantham and BLOSUM62. As a correctness check on those joins, whole-universe AUCs
+against current labels were computed, outside every protocol window: REVEL 0.968, AlphaMissense
+0.961, ESM1b 0.931, Grantham 0.682, BLOSUM62 0.690 (pooled across genes, 208,986 variants with all
+five scores). They confirm orientation and identifier mapping and changed no protocol value.
+
+**2026-10-12, after the primary results.** Primary and secondary analyses were run exactly as
+specified (`rq1_primary.csv`, `rq1_secondary.csv`, `rq1_event_study.csv`). Then, post hoc:
+
+1. *Window boundary.* An entry at snapshot S was labelled during the quarter before S, so the first
+   post-window snapshot straddles each milestone (for AlphaMissense, most of the labels
+   in the 2023-10 snapshot were assigned before the 19 September release). This dilutes the post window; it cannot create a null on its
+   own. Added a clean-boundary run that starts the post window one snapshot later
+   (`rq1_posthoc.csv`). The primary results stay as specified.
+2. *Positive control.* Prompted by the null, tested whether the design can see predictor-shaped
+   labels at all: labels whose own submission text cites PP3/BP4, or says "in silico", against labels
+   whose text does not (`rq1_positive_control.csv`). Exploratory.
+
+Not done yet from this protocol: the secondary macro-average per-gene AUC (section 3), and the
+per-lab analyses use the 300-pair threshold only as a reading rule (the table reports the pair counts).
