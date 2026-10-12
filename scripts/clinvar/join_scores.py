@@ -14,13 +14,14 @@ from pathlib import Path
 import polars as pl
 
 from rdv.aa import THREE_TO_ONE, substitution_scores
-from rdv.scores import alphamissense, mane_table
+from rdv.scores import alphamissense, esm1b, mane_table, revel
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-dir", required=True, type=Path)
     ap.add_argument("--results", type=Path, default=Path("results"))
+    ap.add_argument("--refresh", action="store_true", help="recompute AlphaMissense and REVEL even if cached")
     a = ap.parse_args()
     d = a.data_dir
     universe = pl.read_parquet(d / "derived/missense_universe.parquet")
@@ -36,14 +37,44 @@ def main():
 
     mane_files = sorted((d / "mane").glob("MANE.GRCh38.v*.summary.txt.gz"))
     am_path = d / "alphamissense/AlphaMissense_hg38.tsv.gz"
-    if mane_files and am_path.exists():
+    am_cache = d / "derived/am_scores.parquet"
+    if am_cache.exists() and not a.refresh:
+        am = pl.read_parquet(am_cache)
+        print(f"alphamissense: {am.height:,} variants (cached)", flush=True)
+        out = out.join(am, on="allele_id", how="left")
+    elif mane_files and am_path.exists():
         t = time.time()
         am = alphamissense(universe, am_path, mane_table(mane_files[-1]))
-        am.write_parquet(d / "derived/am_scores.parquet", compression="zstd")
+        am.write_parquet(am_cache, compression="zstd")
         print(f"alphamissense: {am.height:,} of {universe.height:,} variants ({time.time() - t:.0f}s)", flush=True)
         out = out.join(am, on="allele_id", how="left")
     else:
+        am = None
         print("skipping AlphaMissense: run download_all.sh mane alphamissense")
+
+    revel_path, revel_cache = d / "revel/revel-v1.3_all_chromosomes.zip", d / "derived/revel_scores.parquet"
+    if revel_cache.exists() and not a.refresh:
+        rv = pl.read_parquet(revel_cache)
+        print(f"revel: {rv.height:,} variants (cached)", flush=True)
+        out = out.join(rv, on="allele_id", how="left")
+    elif revel_path.exists():
+        t = time.time()
+        rv = revel(universe, revel_path, am)
+        rv.write_parquet(revel_cache, compression="zstd")
+        print(f"revel: {rv.height:,} variants ({time.time() - t:.0f}s)", flush=True)
+        out = out.join(rv, on="allele_id", how="left")
+    else:
+        print("skipping REVEL: run download_all.sh revel")
+
+    esm_path = d / "esm1b/ALL_hum_isoforms_ESM1b_LLR.zip"
+    if esm_path.exists() and am is not None:
+        t = time.time()
+        es = esm1b(am, esm_path)
+        print(f"esm1b: {es['esm1b_llr'].drop_nulls().len():,} scored, "
+              f"{(~es['esm1b_ref_ok']).sum():,} residue mismatches ({time.time() - t:.0f}s)", flush=True)
+        out = out.join(es, on="allele_id", how="left")
+    else:
+        print("skipping ESM1b: needs AlphaMissense and download_all.sh esm1b_scores")
 
     out.write_parquet(d / "derived/scores.parquet", compression="zstd")
     cov = pl.DataFrame({

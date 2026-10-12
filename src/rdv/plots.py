@@ -14,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.dates as mdates  # noqa: E402
+import matplotlib.ticker as mticker  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
@@ -157,5 +158,96 @@ def fig_label_flow(first_confident: pl.DataFrame, out: str | Path) -> None:
              "labels already present in 2017-01 are excluded). Missense variants only.\n" + MILESTONE_NOTE,
              fontsize=7, color=INK2, va="bottom")
     fig.tight_layout(rect=(0, 0.07, 1, 1), w_pad=2.5)
+    fig.savefig(out, facecolor=SURFACE)
+    plt.close(fig)
+
+
+PRED_STYLE = {  # fixed identity per predictor across every figure
+    "revel": ("REVEL", SLOT["orange"]),
+    "am": ("AlphaMissense", SLOT["aqua"]),
+    "esm1b": ("ESM1b (control)", SLOT["blue"]),
+    "grantham": ("Grantham (control)", INK2),
+}
+
+
+def _bin_date(label: str) -> dt.date:
+    """'2023H1' -> 2023-01-01 (entries at the Jan and Apr snapshots), 'H2' -> 2023-07-01."""
+    return dt.date(int(label[:4]), 1 if label.endswith("H1") else 7, 1)
+
+
+def fig_rq1(event_study: pl.DataFrame, primary: pl.DataFrame, posthoc: pl.DataFrame, out: str | Path) -> None:
+    """Three panels: within-gene AUC by half-year; predictor minus ESM1b; forest of every primary variant."""
+    fig = plt.figure(figsize=(13, 5.2), dpi=200, facecolor=SURFACE)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.1, 1.1, 1.0], wspace=0.55)
+    ax1, ax2, ax3 = (fig.add_subplot(gs[0, i]) for i in range(3))
+    for ax in (ax1, ax2, ax3):
+        _style(ax)
+    for ax in (ax1, ax2):
+        _milestones(ax)
+
+    auc = event_study.filter(pl.col("kind") == "auc")
+    for pred, (name, colour) in PRED_STYLE.items():
+        d = auc.filter(pl.col("pred") == pred).sort("bin")
+        if d.is_empty():
+            continue
+        ax1.plot([_bin_date(b) for b in d["bin"]], d["value"], color=colour, linewidth=1.6, label=name, zorder=3)
+    ax1.set_ylim(0.55, 1.0)
+    ax1.set_title("Within-gene AUC of new labels", loc="left", fontsize=10, color=INK, pad=6)
+    ax1.legend(frameon=False, fontsize=7.5, labelcolor=INK2, loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2)
+
+    diff = event_study.filter(pl.col("kind") == "diff")
+    for key, pred in (("revel-esm1b", "revel"), ("am-esm1b", "am")):
+        d = diff.filter(pl.col("pred") == key).sort("bin")
+        x = [_bin_date(b) for b in d["bin"]]
+        colour = PRED_STYLE[pred][1]
+        ax2.fill_between(x, d["lo"], d["hi"], color=colour, alpha=0.14, linewidth=0, zorder=2)
+        ax2.plot(x, d["value"], color=colour, linewidth=1.6, label=f"{PRED_STYLE[pred][0]} minus ESM1b", zorder=3)
+    ax2.axhline(0, color=INK2, linewidth=0.8, zorder=2)
+    ax2.set_ylim(-0.15, 0.30)
+    ax2.set_title("Advantage over the control, with 95% CI", loc="left", fontsize=10, color=INK, pad=6)
+    ax2.legend(frameon=False, fontsize=7.5, labelcolor=INK2, loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=1)
+    for ax in (ax1, ax2):
+        ax.set_xlim(dt.date(2019, 1, 1), dt.date(2026, 10, 1))
+
+    rows = []
+    names = {"primary": "primary (cap 500)", "cap_250": "cap 250", "cap_1000": "cap 1000", "cap_none": "no cap",
+             "exclude_top2_labs": "without top 2 labs", "posthoc_clean_boundary": "clean boundary*",
+             "placebo_-24m": "placebo, 24 mo earlier", "placebo_-36m": "placebo, 36 mo earlier"}
+    both = pl.concat([primary.select(posthoc.columns), posthoc], how="vertical_relaxed") if set(posthoc.columns) <= set(primary.columns) else primary
+    for test, colour, title in (("P1", SLOT["orange"], "P1  REVEL vs ESM1b, Dec 2022"),
+                                ("P2", SLOT["aqua"], "P2  AlphaMissense vs ESM1b, Sep 2023")):
+        rows.append((title, None, None, None, None))
+        for key, label in names.items():
+            r = both.filter(pl.col("test").str.starts_with(test) & (pl.col("analysis") == key))
+            if r.is_empty():
+                continue
+            r = r.row(0, named=True)
+            rows.append((label, r["estimate"], r["lo"], r["hi"], INK2 if key.startswith("placebo") else colour))
+    y = len(rows)
+    for label, est, lo, hi, colour in rows:
+        y -= 1
+        if est is None:
+            ax3.text(0.01, y, label, fontsize=8.5, color=INK, weight="bold", va="center", ha="left",
+                     transform=ax3.get_yaxis_transform())
+            continue
+        ax3.plot([lo, hi], [y, y], color=colour, linewidth=1.6, zorder=3)
+        ax3.plot([est], [y], marker="o", markersize=5, color=colour, markeredgecolor=SURFACE, markeredgewidth=1.2, zorder=4)
+        ax3.text(-0.02, y, label, fontsize=7.5, color=INK2, va="center", ha="right", transform=ax3.get_yaxis_transform())
+    ax3.axvline(0, color=INK2, linewidth=0.8, zorder=1)
+    ax3.set_yticks([])
+    ax3.set_ylim(-0.8, len(rows) + 0.2)
+    ax3.set_xlim(-0.08, 0.08)
+    ax3.xaxis.set_major_locator(mticker.MultipleLocator(0.04))  # replaces the date locator set by _style
+    ax3.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: "0" if abs(v) < 1e-9 else f"{v:+.2f}"))
+    ax3.spines["left"].set_visible(False)
+    ax3.grid(axis="y", visible=False)
+    ax3.grid(axis="x", color=GRID, linewidth=0.8)
+    ax3.set_title("Difference-in-differences, 95% CI", loc="left", fontsize=10, color=INK, pad=6)
+    ax3.set_xlabel("change in (predictor minus control) AUC", fontsize=8, color=INK2)
+    fig.text(0.01, 0.005,
+             "Within-gene weighted AUC of variants as they enter ClinVar as P/LP or B/LB (lab-quarter weights, cap 500), half-year bins of "
+             "entry snapshot; gene-cluster bootstrap.\n*Post window starting one snapshot later (post hoc). " + MILESTONE_NOTE,
+             fontsize=7, color=INK2, va="bottom")
+    fig.subplots_adjust(left=0.05, right=0.985, top=0.9, bottom=0.2)
     fig.savefig(out, facecolor=SURFACE)
     plt.close(fig)

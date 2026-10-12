@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import io
 import re
+import zipfile
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -19,7 +20,14 @@ import polars as pl
 
 
 def _open(path: str | Path):
-    return gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")
+    """Binary stream of a plain, gzipped or zipped (first member) file."""
+    name = str(path)
+    if name.endswith(".gz"):
+        return gzip.open(path, "rb")
+    if name.endswith(".zip"):
+        zf = zipfile.ZipFile(path)
+        return zf.open(zf.namelist()[0])
+    return open(path, "rb")
 
 
 def _is_header(line: bytes) -> bool:
@@ -29,27 +37,30 @@ def _is_header(line: bytes) -> bool:
 
 
 def iter_tsv_chunks(
-    path: str | Path, columns: list[str], chunk_lines: int = 400_000
+    path: str | Path, columns: list[str], chunk_lines: int = 400_000, separator: str = "\t",
+    commented_header: bool = True,
 ) -> Iterator[pl.DataFrame]:
-    """Yield DataFrames of `columns` (all Utf8) from a ClinVar TSV, chunk by chunk.
+    """Yield DataFrames of `columns` (all Utf8) from a ClinVar-style table, chunk by chunk.
 
-    Columns missing from this release come back as all-null.
+    Columns missing from this release come back as all-null. With `commented_header` (ClinVar,
+    AlphaMissense) the header is the first '#' line containing a tab; otherwise (REVEL) it is the
+    first line. `separator` is passed to the CSV parser.
     """
     with _open(path) as fh:
         for line in fh:
-            if _is_header(line):
-                header = line[1:].rstrip(b"\r\n")
+            if (_is_header(line) if commented_header else True):
+                header = line.lstrip(b"#").rstrip(b"\r\n") if commented_header else line.rstrip(b"\r\n")
                 break
         else:
             raise ValueError(f"no header line found in {path}")
-        present_names = header.decode().split("\t")
+        present_names = header.decode().split(separator)
         present = [c for c in columns if c in present_names]
         missing = [c for c in columns if c not in present_names]
 
         def parse(buf: list[bytes]) -> pl.DataFrame:
             df = pl.read_csv(
                 io.BytesIO(header + b"\n" + b"".join(buf)),
-                separator="\t",
+                separator=separator,
                 quote_char=None,
                 infer_schema=False,
                 columns=present,
@@ -62,7 +73,7 @@ def iter_tsv_chunks(
 
         buf: list[bytes] = []
         for line in fh:
-            if line.startswith(b"#"):
+            if commented_header and line.startswith(b"#"):
                 continue
             buf.append(line if line.endswith(b"\n") else line + b"\n")
             if len(buf) >= chunk_lines:
@@ -77,10 +88,12 @@ def read_tsv(
     columns: list[str],
     chunk_filter: Callable[[pl.DataFrame], pl.DataFrame] | None = None,
     chunk_lines: int = 400_000,
+    separator: str = "\t",
+    commented_header: bool = True,
 ) -> pl.DataFrame:
     """Read selected columns, applying `chunk_filter` to each chunk to bound memory."""
     parts = []
-    for df in iter_tsv_chunks(path, columns, chunk_lines):
+    for df in iter_tsv_chunks(path, columns, chunk_lines, separator, commented_header):
         parts.append(chunk_filter(df) if chunk_filter else df)
     if not parts:
         return pl.DataFrame(schema={c: pl.Utf8 for c in columns})
