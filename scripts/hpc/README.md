@@ -81,11 +81,17 @@ These parts were run end-to-end against the real servers:
 
 The AlphaMissense and ProteinGym reference URLs were also verified to be reachable.
 
-NCBI (ClinVar, MANE), PanelApp, UniProt, AlphaFold DB, UCSC and Hugging Face could not be
-reached from the environment where this was written. For those, the parsing and crawling
-logic was tested against mock servers, but the live URLs were not tested. If one of them
-fails on the cluster, check the log first: the URLs most likely to drift are the phyloP
-bigWigs and the ProteinGym zip, and both can be overridden in `config.env`.
+Later, from a second environment with open outbound HTTPS, these stages were also run end to
+end against the live servers: `clinvar_current`, `clinvar_archives` (40 quarterly
+`variant_summary` files from 2017-01 to 2026-10, 5.9 GB, 80 s), `mane`, `panelapp` (433 panels,
+4,308 unique green genes), `uniprot`, `alphamissense`, `gnomad_constraint`, `hpo`, `proteingym`.
+That run found one bug, now fixed: PanelApp answers HTTP 403 to Python's default User-Agent, so
+all scripts now send a descriptive one (`py/web.py`).
+
+Still untested end to end: `conservation` (the phyloP URLs answered, the 9.6 GB file was not
+fetched), `alphafold` (the API answered), `esm`, and the Hugging Face download. If one fails
+on the cluster, check the log first: the URLs most likely to drift are the phyloP bigWigs and
+the ProteinGym zip, and both can be overridden in `config.env`.
 
 **Not included yet:**
 - REVEL, CADD and BayesDel scores. They will come from the myvariant.info batch API once the

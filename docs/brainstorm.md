@@ -125,6 +125,12 @@ How to read the outcomes:
 - **Text evidence (H1c).** Plot the share of SCVs per quarter whose free-text description
   mentions `PP3|BP4|REVEL|AlphaMissense|in silico`. It is simple and very readable. Use it
   as figure 2 of the paper.
+  *Update after week 2 (see `results/README.md`):* the raw series is dominated by which labs
+  dominate the denominator. The two largest submitters never name a tool (Ambry alone is 42% of
+  missense SCVs), 82% of post-2023 REVEL mentions come from three labs, and AlphaMissense appears
+  in 93 of 1.97 million texts. Within continuing labs the REVEL and PP3/BP4 mention rates fall
+  after the first milestone. So this is a descriptive figure, shown with the lab-composition panel,
+  and not evidence for or against H1a. The tests that carry RQ1 are the label-based ones.
 - **Robustness.**
   - ≥2-star labels only, expert panels only (ClinGen VCEPs, which explicitly apply calibrated
     PP3);
@@ -282,6 +288,7 @@ Code review is weekly and swapped between the two.
 | Overlap with the Aug 2026 preprint | Treat gene identity as a replication. The headline is RQ1, which it does not cover (verify). |
 | Coordinate and isoform mismatches | MANE only, ref-aa check, dropped-variant log |
 | Ancestry bias in AF | Per-group AF and `grpmax`. Error analysis on ancestry-differential variants. |
+| Bulk submissions and lab mix drive quarter cohorts (week 2: single quarters add 13,000 to 24,000 new benign labels, P/LP bursts every April, one lab supplies 42% of SCVs) | Attach the submitter of the first confident SCV to every variant. Cluster by lab, cap per-lab-quarter weight, and report results with and without the bulk quarters. |
 
 ## 10. Key references
 - Perdomo, Zrnic, Mendler-Dünner, Hardt 2020, *Performative Prediction* (ICML)
