@@ -123,13 +123,17 @@ letter of the rule (0.031).
   (P1; the second has a 95% interval that excludes zero) and -0.001 and -0.005 (P2). Variation across
   windows from lab and batch composition is as large as either primary estimate, so effects under
   about 0.02 to 0.03 are out of reach.
-- **The instrument does not see explicit predictor use.** Among labels entering from 2019 on, those
-  whose own submission text cites PP3/BP4 (8,974, against 100,276 with other text) show no larger
-  REVEL-over-ESM1b advantage than the others: -0.003 (-0.032 to +0.022). The same for "in silico"
-  wording (72,517 against 31,675): +0.008 (-0.024 to +0.036). Case mix moves every predictor together:
-  "in silico" labels are easier for all of them, Grantham included (+0.03), which is why a difference
-  between predictors cancels it. Only 9 of 201,081 labels are first asserted by a submission that names
-  REVEL, because the REVEL-citing labs (All of Us, Color, 3billion) are rarely the first to label a variant.
+- **We have not shown that the design can see predictor use.** Among labels entering from 2019 on,
+  those whose own submission text cites PP3/BP4 (8,974, against 100,276 with other text) show no
+  larger REVEL-over-ESM1b advantage than the others: -0.003 (-0.032 to +0.022). The same for "in
+  silico" wording (72,517 against 31,675): +0.008 (-0.024 to +0.036). This is not a clean positive
+  control: PP3 can rest on BayesDel, MutPred2, VEST4 or AlphaMissense rather than REVEL, so a flat
+  REVEL gap there does not prove the design is blind. It shows only that this particular check did not
+  light up. Case mix moves every predictor together ("in silico" labels are easier for all of them,
+  Grantham included, +0.03), which is why a difference between predictors cancels it. A real positive
+  control needs labels known to be assigned with REVEL; only 9 of 201,081 labels are first asserted by
+  a submission that names REVEL, because the REVEL-citing labs (All of Us, Color, 3billion) are rarely
+  the first to label a variant.
 - **A correlated control absorbs signal.** Within a gene, REVEL and ESM1b ranks correlate at 0.57
   (REVEL and AlphaMissense 0.66, AlphaMissense and ESM1b 0.67). If labs steered labels along REVEL,
   ESM1b would partly move with them, so a differential recovers well under half of such a shift.
@@ -145,8 +149,14 @@ letter of the rule (0.031).
 ## What this means
 
 No differential gain of an endorsed predictor on new labels is detectable at about 0.02 to 0.03 AUC. That
-is not evidence that no loop exists, because the same design cannot detect labels that say, in their own
-text, that they used a predictor. Options, with the first two combinable:
+is not evidence that no loop exists: the design has no validated positive control, and the loop may act
+mainly on borderline variants (which VUS get promoted), not on how already-confident labels are ordered.
+Options, with the first three combinable:
+
+0. Test promotion directly, which uses the large denominator the AUC design discards: among the ~2.1M
+   VUS in each snapshot, after Dec 2022 do high-REVEL VUS leave VUS toward P/LP faster than
+   comparable high-ESM1b VUS (and the same for benign)? About 24,000 variants were resolved from VUS
+   in ten years. Needs its own pre-specified protocol, written before it is run.
 
 1. Replace the AUC difference with a model of the label that conditions on the control: within gene,
    does the label depend on REVEL beyond ESM1b, and does that partial dependence change after the
