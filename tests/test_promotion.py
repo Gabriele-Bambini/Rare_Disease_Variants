@@ -104,3 +104,14 @@ def test_benign_direction_flips_the_score_orientation(tmp_path):
     down = pr.build_strata(hist, first, ev_down, universe, cov, "down", m=5, seed=3)
     assert up.X[0, 0, :4] == pytest.approx(-down.X[0, 0, :4])
     assert up.X[0, 0, 4:] == pytest.approx(down.X[0, 0, 4:])  # frequency covariates are not flipped
+
+
+def test_lab_matched_controls_are_restricted_to_the_labs_variants(tmp_path):
+    hist, first, universe, cov = _world(tmp_path, 0.5, 0.5, seed=7, n_genes=30)
+    ev = pr.all_events(hist, first, universe, pl.DataFrame({"allele_id": [], "submitter": []}, schema={"allele_id": pl.Int64, "submitter": pl.Utf8}))
+    allowed_ids = np.arange(1, 601)  # only the first 600 variants have a submission by "the lab"
+    st = pr.build_strata(hist, first, ev, universe, cov, "up", m=8, seed=3, allowed_controls=lambda row: allowed_ids)
+    free = pr.build_strata(hist, first, ev, universe, cov, "up", m=8, seed=3)
+    assert 0 < st.X.shape[0] <= free.X.shape[0]
+    none = pr.build_strata(hist, first, ev, universe, cov, "up", m=8, seed=3, allowed_controls=lambda row: np.empty(0, dtype=np.int64))
+    assert none.X.shape[0] == 0  # nothing allowed: no stratum has a control

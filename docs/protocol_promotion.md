@@ -98,4 +98,18 @@ detectable change near 0.2 can therefore rule out PP3 steering most promotions a
 
 ## Deviations log
 
-(none yet)
+**2026-10-14, performance only.** The lab-matched analysis rebuilt a large set per case and was
+killed after several minutes; it now keeps one sorted array per lab. Primary results are byte-identical
+before and after (same checksum). No analysis choice changed.
+
+**2026-10-14, after the primary results (post hoc, `promotion_posthoc.py`).**
+1. The pre-specified waves-out list (four intervals) removes waves from the Q1 post window but not
+   from its pre window, so it compares unlike things (and the benign direction gave +0.51, p = 0.0003).
+   Added a symmetric rule from counts alone: remove every interval with more than 5 times the median
+   number of promotions (8 intervals) from both windows.
+2. Because that result was large, added: all coefficients, the largest case suppliers per period,
+   leave-one-lab-out, one lab at a time, and a rolling placebo that slides the same pre / gap / post
+   geometry across the whole history.
+3. Outcome: no change to any primary or secondary conclusion; the benign-direction lead is recorded in
+   `results/README.md` as exploratory. A confirmation on later snapshots must be pre-specified before it
+   is run.

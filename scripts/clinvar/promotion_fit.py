@@ -71,10 +71,10 @@ def main():
     def allowed(row):
         lab = row["submitter"]
         if lab == "unknown":
-            return set()
+            return np.empty(0, dtype=np.int64)
         if lab not in lab_alleles:
             ids = uni.join(scv.filter(pl.col("submitter") == lab).select("variation_id").unique(), left_on="VariationID", right_on="variation_id")
-            lab_alleles[lab] = set(ids["AlleleID"].to_list())
+            lab_alleles[lab] = np.sort(ids["AlleleID"].to_numpy().astype(np.int64))
         return lab_alleles[lab]
 
     matched = pr.build_strata(hist, fc, ev, gene_of, cov, "up", allowed_controls=allowed)

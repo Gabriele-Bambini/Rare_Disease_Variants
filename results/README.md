@@ -166,3 +166,44 @@ Options, with the first three combinable:
    detect, and report the null as a bound.
 3. Make the circularity decomposition (RQ2 to RQ4) the headline and keep RQ1 as a bounded, honest
    negative result, as the plan's section 3.5 allows.
+
+# Protocol 2: does a VUS's score predict its promotion? ([protocol](../docs/protocol_promotion.md))
+
+Planned analysis, run as frozen (commit `2a75dae`). Cases: 758 / 1,987 (Q1) and 1,772 / 915 (Q2) VUS
+promoted to P/LP before / after the milestone, each with up to 20 unpromoted VUS from the same gene
+and interval. Change in the coefficient per SD, with the other scores held fixed.
+
+| Primary test (promotion to P/LP) | Change | 95% CI | Holm p | Realized detectable change |
+|---|---|---|---|---|
+| Q1, REVEL around Dec 2022 | -0.030 | -0.232 to +0.171 | 0.77 | 0.288 |
+| Q2, AlphaMissense around Sept 2023 | +0.081 | -0.099 to +0.262 | 0.75 | 0.258 |
+
+**By the rule written beforehand, both are inconclusive**, not a bounded null: the test could only have
+seen changes above 0.26 to 0.29 (threshold 0.25). It rules out PP3 steering most promotions and nothing
+subtler. Caps of 250 and 1,000, no cap, removing the two largest labs, lab-matched controls and both
+placebo shifts all agree (all 28 secondary results are nulls except one, below). Level fact: given each
+other and ESM1b, REVEL and AlphaMissense each carry a partial effect of about +0.65 per SD on promotion
+to P/LP, **before and after** (REVEL 0.65 to 0.62, AlphaMissense 0.62 to 0.70). A loop that was already
+there in 2020 cannot show up as a change.
+
+## One result that was not planned, and how far to trust it
+
+Benign direction, with the bulk-submission quarters removed from both windows (post hoc), around Dec
+2022: the REVEL coefficient goes from +0.03 to +0.74 per SD (change +0.71, SE 0.19). Nearly all of it
+sits in one lab, found after the fact:
+
+| Benign promotions, bulk quarters removed | REVEL, before | after | change (SE) | cases |
+|---|---|---|---|---|
+| Ambry only | -0.21 | +1.67 | **+1.88 (0.39)** | 85 / 223 |
+| Everyone except Ambry | +0.13 | +0.09 | -0.04 (0.21) | 300 / 173 |
+
+AlphaMissense, ESM1b, Grantham and the frequency proxy do not move in the same fit, so it is specific to
+REVEL, which is what steering by BP4 would look like. Reasons for caution, all real:
+
+- It was found by looking: direction, bulk-quarter rule and lab were all chosen after seeing the data.
+- Slid across every position in the history with the same geometry, the benign-direction change in REVEL
+  has median +0.27 and exceeds |z| = 2 in 4 of 20 positions, so it is not a sharp break at the milestone.
+- The benign direction is the one population frequency dominates, and REVEL carries frequency information.
+- The other lab with enough cases (GeneDx) points the same way but is imprecise (+0.57, SE 0.45, 27 cases after).
+
+Status: a lead, not a result. It can be tested on snapshots not used in choosing it (2025-04 onward).

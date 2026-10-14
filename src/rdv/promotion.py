@@ -148,7 +148,7 @@ def build_strata(
 ) -> Strata:
     """Sample a risk set of up to `m` controls per case, within gene and interval, for one direction.
 
-    `allowed_controls(case_row) -> set of allele_ids or None` restricts controls (used for the
+    `allowed_controls(case_row) -> sorted array of allele_ids, or None` restricts controls (used for the
     lab-matched analysis). Cases and controls need all covariates; others are dropped.
     """
     snaps = snapshots(history_dir)
@@ -180,8 +180,11 @@ def build_strata(
         for row in ev.iter_rows(named=True):
             ctrl = by_gene.get(row["gene"], np.empty(0, dtype=np.int64))
             if allowed_controls is not None:
-                keep = allowed_controls(row)
-                ctrl = ctrl[np.isin(ctrl, np.fromiter(keep, dtype=np.int64))] if keep is not None else ctrl
+                keep = allowed_controls(row)  # sorted array of allele ids, or None for no restriction
+                if keep is not None:
+                    at = np.searchsorted(keep, ctrl)
+                    at[at >= len(keep)] = 0
+                    ctrl = ctrl[(len(keep) > 0) & (keep[at] == ctrl)] if len(keep) else ctrl[:0]
             _, ok = rows_of(ctrl)
             ctrl = ctrl[ok]
             _, case_ok = rows_of(np.array([row["allele_id"]]))
