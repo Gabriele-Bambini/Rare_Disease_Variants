@@ -55,5 +55,8 @@ the discovered gap (0.8): met.
 
 None to the analysis. **Result (2026-10-14): not confirmed** (REVEL difference +0.14, SE 0.61, one-sided
 p = 0.41; secondary +0.32, SE 0.58, p = 0.29). The outcome-blind power figure above (0.43) was a lower
-bound that ignored gene clustering; the realized SE was about four times the one it implied, so the run
-was less able to detect a difference than the "runnable" criterion suggested. Reported in `results/README.md`.
+bound; the realized SE was about four times the one it implied (about 1.2 times from evaluating the
+information at the fit rather than at zero, about 3 times from gene clustering, almost all of it one gene:
+BRCA2 supplies 86% of the clustered variance of the REVEL difference). The run was therefore less able to
+detect a difference than the "runnable" criterion suggested. An earlier commit message attributed the whole
+gap to clustering without checking; this is the checked account. Reported in `results/README.md`.

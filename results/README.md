@@ -224,9 +224,13 @@ against all other labs (156, lab-matched controls). One-sided test that Ambry's 
 keep straight:
 
 - **The test was weaker than I had said.** The outcome-blind figure (a detectable difference of 0.43) was a lower
-  bound that ignored clustering; the realized standard error of 0.61 means only differences above about 1.7 would
-  have been detected. The 95% interval for the REVEL difference (-1.06 to +1.34) excludes the originally
-  discovered gap of about 1.6 but not smaller ones. "Not confirmed" is not "refuted".
+  bound. The realized standard error of 0.61 is about four times the one it implied: about 1.2 times from
+  evaluating the information at the fit rather than at zero, and about 3 times from gene clustering. The
+  clustering is almost all one gene: BRCA2 supplies 86% of the clustered variance of the REVEL difference (for
+  ESM1b and Grantham clustering changes almost nothing). Only differences above about 1.7 would have been
+  detected. The 95% interval for the REVEL difference (-1.06 to +1.34) excludes the originally discovered gap
+  of about 1.6 but not smaller ones. "Not confirmed" is not "refuted". Whether the discovery estimate also
+  leans on a few genes was not checked.
 - **The pattern moved.** In the discovery windows Ambry's benign promotions loaded on REVEL (+1.67) and not on
   AlphaMissense (+0.12). In 2025-26 they load on both (+0.71, +0.73). The two scores are correlated within
   Ambry, so their split is unstable, while their sum is not: about 1.8 then and 1.4 now, against about 0.7 for
