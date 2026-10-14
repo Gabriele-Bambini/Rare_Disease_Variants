@@ -113,3 +113,10 @@ before and after (same checksum). No analysis choice changed.
 3. Outcome: no change to any primary or secondary conclusion; the benign-direction lead is recorded in
    `results/README.md` as exploratory. A confirmation on later snapshots must be pre-specified before it
    is run.
+
+**2026-10-14, post hoc, on data already seen (`promotion_ambry_checks.py`).** Two checks on the Ambry lead,
+either of which could have ended it. (1) Specificity: inside Ambry, AlphaMissense changes by -0.39 (SE 0.36)
+and ESM1b by +0.21 (SE 0.26) while REVEL changes by +1.88 (SE 0.39), so the lead is not a general shift in
+how machine-learning scores are used. (2) Portfolio: with controls restricted to variants Ambry itself
+holds (1.58 million missense variants), the REVEL change is +1.91 (SE 0.43). Both held. A confirmation on
+intervals not used to find the lead was then pre-specified in [protocol_promotion_confirm.md](protocol_promotion_confirm.md).

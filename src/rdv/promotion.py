@@ -247,15 +247,15 @@ def _weights(strata: Strata, events: pl.DataFrame, cap: int | None) -> np.ndarra
     return strata.meta.join(wt, on=["allele_id", "s", "outcome"], how="left")["w_new"].to_numpy()
 
 
-def pool_information(history_dir, first_snapshot, events, gene_of, cov, direction: str, window: Window,
-                     cap: int | None = CAP) -> dict:
-    """Expected information at beta = 0, from risk sets alone (before any outcome is modelled).
+def information_matrix(history_dir, first_snapshot, events, gene_of, cov, direction: str, intervals,
+                       cap: int | None = CAP, include: tuple[str, ...] | None = None,
+                       exclude: tuple[str, ...] = ()) -> np.ndarray:
+    """Expected information at beta = 0 from risk sets alone, for cases in `intervals` (a set of snapshots).
 
     Under no effect every member of a risk set is equally likely to be the case, so each risk set
     contributes (case weight) x (covariance of the covariates over its members, here the unpromoted VUS
-    of the gene, so that no case's score enters the number). Summing over a
-    window gives the model-based information; Var(change) = inv(I_pre) + inv(I_post). Returns the
-    minimum detectable change (2.8 SE) per covariate. This is a lower bound: it ignores gene clustering.
+    of the gene, so that no case's score enters the number). Weights come from the full event table;
+    `include` / `exclude` then select cases by submitter.
     """
     snaps = snapshots(history_dir)
     cov_ids = cov["allele_id"].to_numpy()
@@ -264,39 +264,88 @@ def pool_information(history_dir, first_snapshot, events, gene_of, cov, directio
     complete = ~np.isnan(cov_arr[:, : len(ML)]).any(axis=1)
     sign = np.array([-1.0] * len(ML) + [1.0] * (len(COVARIATES) - len(ML))) if direction == "down" else np.ones(len(COVARIATES))
     weighted = case_weights(events, cap).filter(pl.col("outcome") == direction)
+    if include is not None:
+        weighted = weighted.filter(pl.col("submitter").is_in(pl.Series(list(include), dtype=pl.Utf8).implode()))
+    if exclude:
+        weighted = weighted.filter(~pl.col("submitter").is_in(pl.Series(list(exclude), dtype=pl.Utf8).implode()))
 
     def rows_of(ids):
         pos = np.searchsorted(cov_ids, ids)
         pos[pos >= len(cov_ids)] = 0
         return pos, (cov_ids[pos] == ids) & complete[pos]
 
-    def info(win: tuple[str, str]) -> np.ndarray:
-        P = len(COVARIATES)
-        total = np.zeros((P, P))
-        for p, s in zip(snaps[:-1], snaps[1:]):
-            if not (win[0] <= s <= win[1]):
+    P = len(COVARIATES)
+    total = np.zeros((P, P))
+    for p, s in zip(snaps[:-1], snaps[1:]):
+        if s not in intervals:
+            continue
+        ev = weighted.filter(pl.col("s") == s)
+        if ev.is_empty():
+            continue
+        ctrl = interval_events(history_dir, p, s, first_snapshot).filter(pl.col("outcome") == "control")
+        ctrl = ctrl.join(gene_of, on="allele_id").filter(pl.col("gene").is_in(ev["gene"].unique().implode()))
+        by_gene = {g: np.asarray(i, dtype=np.int64) for g, i in ctrl.group_by("gene").agg(pl.col("allele_id")).iter_rows()}
+        for g, rows in ev.group_by("gene"):
+            cases = rows["allele_id"].to_numpy()
+            members = by_gene.get(g[0], np.empty(0, dtype=np.int64))
+            pos, ok = rows_of(members)
+            _, case_ok = rows_of(cases)
+            if ok.sum() < 2 or not case_ok.any():
                 continue
-            ev = weighted.filter(pl.col("s") == s)
-            if ev.is_empty():
-                continue
-            ctrl = interval_events(history_dir, p, s, first_snapshot).filter(pl.col("outcome") == "control")
-            ctrl = ctrl.join(gene_of, on="allele_id").filter(pl.col("gene").is_in(ev["gene"].unique().implode()))
-            by_gene = {g: np.asarray(i, dtype=np.int64) for g, i in ctrl.group_by("gene").agg(pl.col("allele_id")).iter_rows()}
-            for g, rows in ev.group_by("gene"):
-                cases = rows["allele_id"].to_numpy()
-                # outcome-blind: the covariance comes from the unpromoted VUS only, so no case's score enters it
-                members = by_gene.get(g[0], np.empty(0, dtype=np.int64))
-                pos, ok = rows_of(members)
-                _, case_ok = rows_of(cases)
-                if ok.sum() < 2 or not case_ok.any():
-                    continue
-                X = cov_arr[pos[ok]] * sign
-                total += rows["w"].to_numpy()[case_ok].sum() * np.cov(X.T, bias=True)
-        return total
+            X = cov_arr[pos[ok]] * sign
+            total += rows["w"].to_numpy()[case_ok].sum() * np.cov(X.T, bias=True)
+    return total
 
-    i_pre, i_post = info(window.pre), info(window.post)
-    active = (np.diag(i_pre) > 1e-12) & (np.diag(i_post) > 1e-12)  # a covariate with no variation has no information
+
+def _mde_from(info_a: np.ndarray, info_b: np.ndarray) -> dict:
+    """Minimum detectable difference (2.8 SE) between two independent information matrices."""
+    active = (np.diag(info_a) > 1e-12) & (np.diag(info_b) > 1e-12)  # a covariate with no variation has no information
     var = np.full(len(COVARIATES), np.nan)
     sub = np.ix_(active, active)
-    var[active] = np.diag(np.linalg.inv(i_pre[sub]) + np.linalg.inv(i_post[sub]))
+    var[active] = np.diag(np.linalg.inv(info_a[sub]) + np.linalg.inv(info_b[sub]))
     return {f"mde_{name}": float(2.8 * np.sqrt(v)) for name, v in zip(COVARIATES, var)}
+
+
+def pool_information(history_dir, first_snapshot, events, gene_of, cov, direction: str, window: Window,
+                     cap: int | None = CAP) -> dict:
+    """Minimum detectable change between a window's pre and post periods (model-based lower bound)."""
+    def span(w):
+        return {s for s in snapshots(history_dir) if w[0] <= s <= w[1]}
+    a = information_matrix(history_dir, first_snapshot, events, gene_of, cov, direction, span(window.pre), cap)
+    b = information_matrix(history_dir, first_snapshot, events, gene_of, cov, direction, span(window.post), cap)
+    return _mde_from(a, b)
+
+
+def lab_contrast_mde(history_dir, first_snapshot, events, gene_of, cov, direction: str, intervals, lab: str,
+                     cap: int | None = CAP) -> dict:
+    """Minimum detectable difference between one lab and all others in the same intervals, from risk sets alone."""
+    a = information_matrix(history_dir, first_snapshot, events, gene_of, cov, direction, intervals, cap, include=(lab,))
+    b = information_matrix(history_dir, first_snapshot, events, gene_of, cov, direction, intervals, cap, exclude=(lab,))
+    out = _mde_from(a, b)
+    out["lab_case_weight_total"] = float(case_weights(events, cap).filter(
+        (pl.col("outcome") == direction) & (pl.col("submitter") == lab) & pl.col("s").is_in(pl.Series(sorted(intervals), dtype=pl.Utf8).implode()))["w"].sum())
+    return out
+
+
+def fit_lab_contrast(strata: Strata, events: pl.DataFrame, intervals, lab: str, cap: int | None = CAP) -> dict:
+    """Does `lab` differ from all other labs in each covariate's coefficient, within the same intervals?
+
+    The lab indicator plays the part the post-period indicator plays in `fit_window`: coefficients for
+    everyone, and the lab's difference as the interaction. Estimated in one model, errors clustered by gene.
+    """
+    meta = strata.meta
+    keep = meta["s"].is_in(pl.Series(sorted(intervals), dtype=pl.Utf8).implode()).to_numpy()
+    sub = meta.filter(pl.Series(keep))
+    w = _weights(strata, events, cap)[keep]
+    is_lab = (sub["submitter"] == lab).to_numpy().astype(float)
+    X = strata.X[keep]
+    Xi = np.concatenate([X, X * is_lab[:, None, None]], axis=2)
+    _, cluster = np.unique(sub["gene"].to_numpy(), return_inverse=True)
+    f = clogit.fit(Xi, strata.valid[keep], w, cluster)
+    P = len(COVARIATES)
+    out = {"lab": lab, "n_lab": int(is_lab.sum()), "n_other": int((1 - is_lab).sum()), "n_genes": f.n_clusters, "converged": f.converged}
+    for k, name in enumerate(COVARIATES):
+        d, se = f.beta[P + k], f.se[P + k]
+        out[f"other_{name}"], out[f"lab_{name}"] = float(f.beta[k]), float(f.beta[k] + d)
+        out[f"diff_{name}"], out[f"se_{name}"] = float(d), float(se)
+    return out

@@ -115,3 +115,52 @@ def test_lab_matched_controls_are_restricted_to_the_labs_variants(tmp_path):
     assert 0 < st.X.shape[0] <= free.X.shape[0]
     none = pr.build_strata(hist, first, ev, universe, cov, "up", m=8, seed=3, allowed_controls=lambda row: np.empty(0, dtype=np.int64))
     assert none.X.shape[0] == 0  # nothing allowed: no stratum has a control
+
+
+def _world_labs(tmp_path, slope_a, slope_b, seed=0, n_genes=200, per_gene=40):
+    """Two labs promote VUS independently; lab A's hazard rises with the first covariate as exp(slope_a x), lab B's as exp(slope_b x)."""
+    rng = np.random.default_rng(seed)
+    n = n_genes * per_gene
+    ids = np.arange(1, n + 1)
+    gene = np.array([f"G{i // per_gene}" for i in range(n)])
+    X = rng.normal(size=(n, 4))
+    snaps = ["2025-07", "2025-10", "2026-01", "2026-07", "2026-10"]
+    label = np.array(["VUS"] * n, dtype=object)
+    states, first, who = {snaps[0]: dict(zip(ids, label))}, {}, {}
+    for s in snaps[1:]:
+        pa = 0.04 * np.exp(slope_a * X[:, 0]) / np.exp(slope_a**2 / 2)
+        pb = 0.04 * np.exp(slope_b * X[:, 0]) / np.exp(slope_b**2 / 2)
+        a = (label == "VUS") & (rng.random(n) < np.clip(pa, 0, 0.9))
+        b = (label == "VUS") & ~a & (rng.random(n) < np.clip(pb, 0, 0.9))
+        for mask, lab in ((a, "A"), (b, "B")):
+            label[mask] = "PLP"
+            for i in ids[mask]:
+                first[int(i)], who[int(i)] = s, lab
+        states[s] = dict(zip(ids, label.copy()))
+    hist = _write_history(tmp_path, states)
+    scores = pl.DataFrame({"allele_id": ids, "VariationID": ids, "revel": X[:, 0], "am_score": X[:, 1], "esm1b_llr": -X[:, 2], "grantham": X[:, 3]})
+    af = pl.DataFrame({"VariationID": ids, "af_proxy": [None] * n}, schema={"VariationID": pl.Int64, "af_proxy": pl.Float64})
+    universe = pl.DataFrame({"allele_id": ids, "gene": gene})
+    first_snap = pl.DataFrame({"allele_id": list(first), "first_snapshot": list(first.values())}, schema={"allele_id": pl.Int64, "first_snapshot": pl.Utf8})
+    submitter_of = pl.DataFrame({"allele_id": list(who), "submitter": list(who.values())}, schema={"allele_id": pl.Int64, "submitter": pl.Utf8})
+    return hist, first_snap, universe, submitter_of, pr.covariate_table(scores, af, universe), set(snaps[1:])
+
+
+def test_lab_contrast_recovers_a_planted_difference_and_a_null(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    hist, first, universe, who, cov, snaps = _world_labs(tmp_path / "a", slope_a=1.0, slope_b=0.2, seed=3)
+    ev = pr.all_events(hist, first, universe, who)
+    st = pr.build_strata(hist, first, ev, universe, cov, "up", m=10, seed=5)
+    r = pr.fit_lab_contrast(st, ev, snaps, "A", cap=None)
+    assert r["converged"] and r["n_lab"] > 100 and r["n_other"] > 100
+    assert r["diff_revel"] == pytest.approx(0.8, abs=0.25) and r["diff_revel"] / r["se_revel"] > 3  # planted gap of 0.8
+    assert abs(r["diff_esm1b"]) < 3.5 * r["se_esm1b"]
+    mde = pr.lab_contrast_mde(hist, first, ev, universe, cov, "up", snaps, "A", cap=None)
+    assert 0 < mde["mde_revel"] < 1.0 and mde["lab_case_weight_total"] > 100
+
+    hist, first, universe, who, cov, snaps = _world_labs(tmp_path / "b", slope_a=0.5, slope_b=0.5, seed=4)
+    ev = pr.all_events(hist, first, universe, who)
+    st = pr.build_strata(hist, first, ev, universe, cov, "up", m=10, seed=5)
+    r0 = pr.fit_lab_contrast(st, ev, snaps, "A", cap=None)
+    assert abs(r0["diff_revel"]) < 3.5 * r0["se_revel"]
