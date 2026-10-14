@@ -1,0 +1,17 @@
+metric,value
+universe_missense_variants,2552260
+universe_PLP,70172
+universe_OTHER,60293
+universe_VUS,2155628
+universe_CONFLICT,120436
+universe_BLB,145731
+ever_confident_variants,262711
+left_censored_at_first_snapshot,38420
+first_confident_two_star_plus,7395
+first_confident_PLP_from_conflict,2395
+first_confident_PLP_from_vus,7360
+first_confident_PLP_new,54380
+first_confident_BLB_from_conflict,2868
+first_confident_BLB_from_vus,16452
+first_confident_BLB_new,140836
+direct_plp_blb_flips,297
