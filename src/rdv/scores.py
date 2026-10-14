@@ -190,3 +190,26 @@ def esm1b(am: pl.DataFrame, zip_path: str | Path) -> pl.DataFrame:
         {"allele_id": out_ids, "esm1b_llr": out_llr, "esm1b_ref_ok": out_ok},
         schema={"allele_id": pl.Int64, "esm1b_llr": pl.Float64, "esm1b_ref_ok": pl.Boolean},
     ).sort("allele_id")
+
+
+def clinvar_vcf_af(path: str | Path) -> pl.DataFrame:
+    """Allele-frequency proxy from the ClinVar VCF's INFO field: the largest of AF_EXAC, AF_TGP, AF_ESP.
+
+    Keyed by VariationID (the VCF ID). Null when none of the three is present, which for a variant
+    means 'not seen at appreciable frequency in those panels', not 'frequency zero'. The values are a
+    fixed 2015-era snapshot, so they do not move between ClinVar releases.
+    """
+    import gzip
+    import re
+
+    pat = re.compile(rb"(?:^|;)(AF_EXAC|AF_TGP|AF_ESP)=([0-9.eE+-]+)")
+    ids, afs = [], []
+    with gzip.open(path, "rb") as fh:
+        for line in fh:
+            if line.startswith(b"#"):
+                continue
+            f = line.split(b"\t", 8)
+            vals = [float(v) for _, v in pat.findall(f[7])]
+            ids.append(int(f[2]))
+            afs.append(max(vals) if vals else None)
+    return pl.DataFrame({"VariationID": ids, "af_proxy": afs}, schema={"VariationID": pl.Int64, "af_proxy": pl.Float64})

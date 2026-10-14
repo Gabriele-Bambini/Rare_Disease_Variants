@@ -94,3 +94,24 @@ def test_esm1b_lookup_checks_the_wild_type_residue(tmp_path):
     out = esm1b(am, path).sort("allele_id")
     got = {r["allele_id"]: (r["esm1b_llr"], r["esm1b_ref_ok"]) for r in out.iter_rows(named=True)}
     assert got == {1: (-7.5, True), 2: (-2.5, True), 3: (None, False), 4: (-0.5, True)}
+
+
+def test_clinvar_vcf_af_takes_the_largest_available_frequency(tmp_path):
+    import gzip
+
+    from rdv.scores import clinvar_vcf_af
+
+    lines = [
+        "##fileformat=VCFv4.1",
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO",
+        "1\t100\t11\tG\tA\t.\t.\tALLELEID=1;AF_ESP=0.0001;AF_EXAC=0.00032;AF_TGP=0.0002;CLNSIG=Uncertain_significance",
+        "1\t200\t12\tC\tT\t.\t.\tALLELEID=2;AF_TGP=0.05;GENEINFO=X:1",
+        "1\t300\t13\tA\tG\t.\t.\tALLELEID=3;CLNSIG=Pathogenic",
+        "1\t400\t14\tA\tG\t.\t.\tALLELEID=4;AF_EXAC=1e-05",
+    ]
+    path = tmp_path / "clinvar.vcf.gz"
+    with gzip.open(path, "wt") as fh:
+        fh.write("\n".join(lines) + "\n")
+    out = clinvar_vcf_af(path)
+    assert out["VariationID"].to_list() == [11, 12, 13, 14]
+    assert out["af_proxy"].to_list() == [0.00032, 0.05, None, 1e-05]
