@@ -207,3 +207,32 @@ REVEL, which is what steering by BP4 would look like. Reasons for caution, all r
 - The other lab with enough cases (GeneDx) points the same way but is imprecise (+0.57, SE 0.45, 27 cases after).
 
 Status: a lead, not a result. It can be tested on snapshots not used in choosing it (2025-04 onward).
+
+## Protocol 3: the Ambry lead, tested on intervals not used to find it ([protocol](../docs/protocol_promotion_confirm.md))
+
+Benign promotions in the non-bulk intervals 2025-07, 2025-10, 2026-01, 2026-07 and 2026-10, Ambry (771 cases)
+against all other labs (156, lab-matched controls). One-sided test that Ambry's REVEL coefficient is larger.
+
+| | Others | Ambry | Difference (SE) | One-sided p |
+|---|---|---|---|---|
+| REVEL, primary (lab-matched controls) | +0.58 | +0.71 | +0.14 (0.61) | 0.41 |
+| REVEL, secondary (all controls) | +0.38 | +0.70 | +0.32 (0.58) | 0.29 |
+| AlphaMissense, primary | +0.16 | +0.73 | +0.57 (0.25) | |
+| ESM1b, primary | +0.21 | +0.11 | -0.10 (0.16) | |
+
+**Verdict by the rule written beforehand: not confirmed.** The REVEL-specific claim is dropped. Three things to
+keep straight:
+
+- **The test was weaker than I had said.** The outcome-blind figure (a detectable difference of 0.43) was a lower
+  bound that ignored clustering; the realized standard error of 0.61 means only differences above about 1.7 would
+  have been detected. The 95% interval for the REVEL difference (-1.06 to +1.34) excludes the originally
+  discovered gap of about 1.6 but not smaller ones. "Not confirmed" is not "refuted".
+- **The pattern moved.** In the discovery windows Ambry's benign promotions loaded on REVEL (+1.67) and not on
+  AlphaMissense (+0.12). In 2025-26 they load on both (+0.71, +0.73). The two scores are correlated within
+  Ambry, so their split is unstable, while their sum is not: about 1.8 then and 1.4 now, against about 0.7 for
+  the other labs. This is a post-hoc reading and the history ends in 2026-10, so there is no fresh data to test it.
+- **Stop rule applied.** The VUS-promotion line of work (RQ1, option B) ends here.
+
+What survives as a hypothesis, not a finding: some labs' benign promotions follow machine-learning scores more
+closely than others', and Ambry looks like one. Separating a lab that steers by a predictor from one whose
+decisions merely follow what the predictor captures needs an outside anchor (deep mutational scans, H1b).

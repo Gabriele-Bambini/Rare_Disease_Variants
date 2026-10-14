@@ -53,4 +53,7 @@ the discovered gap (0.8): met.
 
 ## Deviations log
 
-(none yet)
+None to the analysis. **Result (2026-10-14): not confirmed** (REVEL difference +0.14, SE 0.61, one-sided
+p = 0.41; secondary +0.32, SE 0.58, p = 0.29). The outcome-blind power figure above (0.43) was a lower
+bound that ignored gene clustering; the realized SE was about four times the one it implied, so the run
+was less able to detect a difference than the "runnable" criterion suggested. Reported in `results/README.md`.
