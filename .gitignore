@@ -1,0 +1,7 @@
+data/
+venv/
+.venv/
+*.log
+__pycache__/
+*.tbi
+*.egg-info/
