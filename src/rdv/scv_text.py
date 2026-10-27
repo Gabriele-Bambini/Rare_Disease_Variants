@@ -28,22 +28,27 @@ SCV_COLUMNS = [
 # name -> (regex, role). Roles: "endorsed" = predictors/codes calibrated for ACMG PP3/BP4;
 # "control" = evidence types the PP3/BP4 calibration did not touch; "context" = shares
 # that normalise the rest.
+# Word edges are written as (^|[^a-z0-9]) ... ([^a-z0-9]|$) rather than \b: criteria are often glued to their
+# strength with an underscore ("PP3_Moderate"), and underscore is a word character, so \b sees no edge there.
+# (The regex engine behind polars has no lookaround, hence the consuming form.)
+_L, _R = r"(?:^|[^a-z0-9])", r"(?:$|[^a-z0-9])"
+
 PATTERNS: dict[str, tuple[str, str]] = {
-    "pp3_bp4": (r"(?i)\b(?:pp3|bp4)\b", "endorsed"),
-    "revel": (r"(?i)\brevel\b", "endorsed"),
+    "pp3_bp4": (rf"(?i){_L}(?:pp3|bp4){_R}", "endorsed"),
+    "revel": (rf"(?i){_L}revel{_R}", "endorsed"),
     "alphamissense": (r"(?i)alpha[\s-]?missense", "endorsed"),
-    "cadd": (r"(?i)\bcadd\b", "endorsed"),
+    "cadd": (rf"(?i){_L}cadd{_R}", "endorsed"),
     "bayesdel": (r"(?i)bayes[\s-]?del", "endorsed"),
     "legacy_tools": (
-        r"(?i)\b(?:sift|polyphen|mutation[\s-]?taster|provean|fathmm|metasvm|metalr)\b",
+        rf"(?i){_L}(?:sift|polyphen|mutation[\s-]?taster|provean|fathmm|metasvm|metalr){_R}",
         "control",
     ),
-    "conservation": (r"(?i)\b(?:conserv\w*|phylop|phastcons|gerp)\b", "control"),
+    "conservation": (rf"(?i)conserv|{_L}(?:phylop|phastcons|gerp){_R}", "control"),
     "population": (
-        r"(?i)gnomad|\bexac\b|1000 genomes|population (?:database|frequency)|allele frequency",
+        rf"(?i)gnomad|{_L}exac{_R}|1000 genomes|population (?:database|frequency)|allele frequency",
         "control",
     ),
-    "esm": (r"(?i)\besm[\s-]?(?:1b|2)?\b", "control"),
+    "esm": (rf"(?i){_L}esm[\s-]?(?:1b|2)?{_R}", "control"),
     # The largest labs (e.g. Ambry) say "predicted to be deleterious by in silico analysis"
     # without naming a tool, so tool names alone undercount computational evidence.
     "insilico_generic": (
@@ -52,7 +57,7 @@ PATTERNS: dict[str, tuple[str, str]] = {
         r"|predicted (?:to be|as) (?:deleterious|damaging|benign|tolerated|pathogenic|disease)",
         "context",
     ),
-    "acmg_code": (r"(?i)\b(?:pvs1|ps[1-4]|pm[1-6]|pp[1-5]|ba1|bs[1-4]|bp[1-7])\b", "context"),
+    "acmg_code": (rf"(?i){_L}(?:pvs1|ps[1-4]|pm[1-6]|pp[1-5]|ba1|bs[1-4]|bp[1-7]){_R}", "context"),
 }
 FLAGS = list(PATTERNS)
 MIN_TEXT = 30  # characters; shorter descriptions carry no evidence statement

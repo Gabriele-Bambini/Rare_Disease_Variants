@@ -27,6 +27,10 @@ HEADER = ["#VariationID", "ClinicalSignificance", "DateLastEvaluated", "Descript
         ("highly conserved across vertebrates", "conservation", True),
         ("absent from gnomAD", "population", True),
         ("PM2 and PP3 and BS1", "acmg_code", True),
+        ("PVS1_Strong, PP3_Moderate", "pp3_bp4", True),  # glued by an underscore: \\b would have missed it
+        ("PS4_VeryStrong; PM2_Supporting", "acmg_code", True),
+        ("BP4_Strong", "pp3_bp4", True),
+        ("REVEL_score 0.91", "revel", True),
     ],
 )
 def test_patterns(text, term, expected):
