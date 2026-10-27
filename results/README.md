@@ -65,7 +65,7 @@ assertion criteria and carry at least 30 characters of text. Time axis: `DateLas
 
 | Term | Pooled before | Pooled after | Pooled change | Within labs | Mix | Entry / exit |
 |---|---|---|---|---|---|---|
-| PP3 / BP4 cited | 0.75 | 0.43 | -0.33 | -0.30 | -0.13 | +0.10 |
+| PP3 / BP4 cited | 0.92 | 0.58 | -0.34 | -0.32 | -0.11 | +0.09 |
 | REVEL named | 1.09 | 2.11 | +1.02 | -0.39 | +0.48 | +0.93 |
 | "in silico" (any tool) | 19.19 | 20.75 | +1.56 | -4.44 | +4.97 | +1.03 |
 | SIFT / PolyPhen etc. (control) | 38.13 | 6.90 | -31.24 | -15.41 | -15.97 | +0.14 |
@@ -77,6 +77,14 @@ mention it *less* (-0.39), and the entry term is largely All of Us joining with 
 94% of its texts (16,824 mentions after 2023 are 0.86 points of the 0.93). The control
 "SIFT/PolyPhen" falls by half within labs (Labcorp: about 71% of its texts in 2022, about 34% from
 2023) and by half through the mix (volume moved to labs that never name it).
+
+**Correction, 2026-10-27.** The first version of the mention patterns used `\b` as the word edge, which
+skipped criteria glued to their strength by an underscore (`PP3_Moderate`, `PS4_VeryStrong`): about 7% of
+PP3/BP4 mentions (11,044 submissions against 152,574 written as a separate word). Fixed and rerun. Only the
+PP3/BP4 and "any ACMG code" rows moved (pooled share before the milestone 0.75% to 0.92%, after 0.43% to 0.58%;
+the table above is the corrected one); REVEL, AlphaMissense and every other term are identical, the RQ1
+tables are byte-identical, and the positive-control group grew from 8,974 to 10,216 labels with the same
+conclusion. Ambry, Labcorp and GeneDx still name neither PP3/BP4 nor REVEL (0.000%).
 
 ## What this means for the design
 
@@ -124,8 +132,8 @@ letter of the rule (0.031).
   windows from lab and batch composition is as large as either primary estimate, so effects under
   about 0.02 to 0.03 are out of reach.
 - **We have not shown that the design can see predictor use.** Among labels entering from 2019 on,
-  those whose own submission text cites PP3/BP4 (8,974, against 100,276 with other text) show no
-  larger REVEL-over-ESM1b advantage than the others: -0.003 (-0.032 to +0.022). The same for "in
+  those whose own submission text cites PP3/BP4 (10,216, against 99,086 with other text) show no
+  larger REVEL-over-ESM1b advantage than the others: -0.010 (-0.047 to +0.020). The same for "in
   silico" wording (72,517 against 31,675): +0.008 (-0.024 to +0.036). This is not a clean positive
   control: PP3 can rest on BayesDel, MutPred2, VEST4 or AlphaMissense rather than REVEL, so a flat
   REVEL gap there does not prove the design is blind. It shows only that this particular check did not
