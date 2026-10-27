@@ -14,12 +14,27 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
+from rdv.clinvar import BLB, PLP, VUS, classify_significance
+
 # Lookarounds, not \b: a code is often glued to its strength with an underscore ("PP3_Moderate"), and
 # underscore is a word character, so \b would see no boundary after the code and skip it.
-CODE_RE = re.compile(
-    r"(?<![A-Za-z0-9])(PVS1|PS[1-4]|PM[1-6]|PP[1-5]|BA1|BS[1-4]|BP[1-7])(?![A-Za-z0-9])"
-    r"(?:[\s:_\-\(\[]+(very[\s-]?strong|strong|moderate|supporting|stand[\s-]?alone|vs|mod|sup)(?![A-Za-z])"
-    r"|_(s|m|p)(?![A-Za-z0-9]))?",
+_CODE = r"PVS1|PS[1-4]|PM[1-6]|PP[1-5]|BA1|BS[1-4]|BP[1-7]"
+CODE_RE = re.compile(rf"(?<![A-Za-z0-9])({_CODE})(?![0-9])", re.I)
+# Strength words as submitters write them: spelled out, abbreviated (a survey of 116k submissions found
+# _STR, _SUPP, _VSTR, _SUP, _MOD in the thousands), or mistyped ("moderated", "supporti").
+_WORD = (r"very[\s-]?strong|vstr|vs|strong|str|stand[\s-]?alone|moderated?|mod|medium|"
+         r"supporting|supporti|supp|sup")
+_STRENGTH = {"verystrong": "very_strong", "vstr": "very_strong", "vs": "very_strong", "strong": "strong", "str": "strong",
+             "standalone": "stand_alone", "moderate": "moderate", "moderated": "moderate", "mod": "moderate",
+             "medium": "moderate", "supporting": "supporting", "supporti": "supporting", "supp": "supporting",
+             "sup": "supporting"}
+# What may follow a code: "PP3_Moderate", "PP3 (supporting)", "PM2sup", "PVS1_S" / "PM2-P", or a stated change
+# of strength, "PM1 downgraded in strength to Supporting". 'vs' needs a bracket or underscore, since " vs " is
+# also "versus".
+_AFTER = re.compile(
+    rf"(?P<sep>[\s:_\-\(\[]*)(?P<word>{_WORD})(?![A-Za-z0-9])"
+    rf"|[_\-](?P<letter>[smp])(?![A-Za-z0-9])"
+    rf"|\s+(?:(?:was|is|been)\s+)?(?:down|up)graded(?:\s+in\s+strength)?\s+(?:to|as|at)\s+(?P<moved>{_WORD})(?![A-Za-z0-9])",
     re.I,
 )
 # Negation is scoped to the item (text between commas, semicolons, full stops, bars, newlines) holding the
@@ -50,29 +65,35 @@ def _default(code: str) -> str:
 
 
 def parse_criteria(text: str) -> list[Criterion]:
-    """Distinct, non-negated codes in `text`; a repeated code keeps its strongest stated strength."""
+    """Distinct, non-negated codes in `text`. A repeated code keeps a stated strength over a default one,
+    and the strongest among stated ones: a bare "PM2" later in the text carries no strength information."""
     best: dict[str, Criterion] = {}
     for m in CODE_RE.finditer(text):
         code = m.group(1).upper()
+        end, word, letter = m.end(), None, None
+        mod = _AFTER.match(text, end)
+        if mod:
+            end = mod.end()
+            word = mod.group("word") or mod.group("moved")
+            letter = mod.group("letter")
+            if (mod.group("word") or "").lower() == "vs" and not set(mod.group("sep")) & set(":_-(["):
+                word, end = None, m.end()  # " vs " is "versus"
+        if end == m.end() and text[end:end + 1].isalpha():
+            continue  # a code glued to an unknown word ("PS4M", "PM2ndry") is not read as a code
         left = max(text.rfind(d, 0, m.start()) for d in _DELIMS) + 1
-        right = min((i for i in (text.find(d, m.end()) for d in _DELIMS) if i != -1), default=len(text))
-        if _NEG_BEFORE.search(text[left:m.start()]) or _NEG_AFTER.search(text[m.end():right]):
+        right = min((i for i in (text.find(d, end) for d in _DELIMS) if i != -1), default=len(text))
+        if _NEG_BEFORE.search(text[left:m.start()]) or _NEG_AFTER.search(text[end:right]):
             continue
         side = "B" if code[0] == "B" else "P"
         strength, explicit = _default(code), False
-        word = (m.group(2) or "").lower()
         if word:
-            word = re.sub(r"[\s-]+", "_", word)
-            strength = {"very_strong": "very_strong", "verystrong": "very_strong", "vs": "very_strong", "strong": "strong", "moderate": "moderate",
-                        "mod": "moderate", "supporting": "supporting", "sup": "supporting", "stand_alone": "stand_alone",
-                        "standalone": "stand_alone"}[word]
-            explicit = True
-        elif m.group(3):
-            strength, explicit = {"s": "strong", "m": "moderate", "p": "supporting"}[m.group(3).lower()], True
+            strength, explicit = _STRENGTH[re.sub(r"[\s-]+", "", word.lower())], True
+        elif letter:
+            strength, explicit = {"s": "strong", "m": "moderate", "p": "supporting"}[letter.lower()], True
         if side == "P" and strength == "stand_alone":  # not a pathogenic strength; keep the default
             strength, explicit = _default(code), False
         new = Criterion(code, side, strength, explicit)
-        if code not in best or POINTS[strength] > POINTS[best[code].strength]:
+        if code not in best or (explicit, POINTS[strength]) > (best[code].explicit, POINTS[best[code].strength]):
             best[code] = new
     return list(best.values())
 
@@ -125,12 +146,13 @@ def derive(criteria: list[Criterion], rule: str, pm2_supporting: bool = False) -
 
 
 def stated_family(significance: str | None) -> str:
-    s = (significance or "").strip().lower()
-    if s.startswith(("pathogenic", "likely pathogenic")):
-        return "PLP"
-    if s.startswith(("benign", "likely benign")):
-        return "BLB"
-    return "VUS" if s.startswith("uncertain") else "other"
+    """'PLP', 'BLB' or 'VUS' for a submitter's classification, 'other' for anything else (risk allele, conflicting...).
+
+    Delegates to the normaliser that labels the variant universe, so a submission and the variant it sits on
+    are read with one definition.
+    """
+    c = classify_significance(significance)
+    return c if c in (PLP, BLB, VUS) else "other"
 
 
 def is_decisive(criteria: list[Criterion], code: str, rule: str, stated: str, pm2_supporting: bool = False) -> bool:
@@ -146,3 +168,38 @@ def is_decisive(criteria: list[Criterion], code: str, rule: str, stated: str, pm
 def decisive_codes(criteria: list[Criterion], rule: str, stated: str, pm2_supporting: bool = False) -> list[str]:
     """Every listed code whose removal would change the class family (computational or not)."""
     return [c.code for c in criteria if is_decisive(criteria, c.code, rule, stated, pm2_supporting)]
+
+
+_TAGS = (("t", "tavtigian", False), ("t_pm2s", "tavtigian", True), ("r", "richards", False), ("r_pm2s", "richards", True))
+
+
+def describe(text: str, significance: str | None) -> dict | None:
+    """Everything the audit needs from one submission, or None if it lists no (non-negated) code.
+
+    For each of four reference derivations (Tavtigian points or Richards 2015 rules, with an unqualified PM2
+    read as moderate or as supporting) it records the derived class family, whether PP3 / BP4 is decisive,
+    whether a non-computational code is decisive, and which codes are decisive. A single listed code is kept:
+    BA1 alone is a complete benign justification, and dropping it would inflate BP4's share of benign labels.
+    """
+    crit = parse_criteria(text)
+    if not crit:
+        return None
+    stated = stated_family(significance)
+    pp3 = next((c for c in crit if c.code == "PP3"), None)
+    bp4 = next((c for c in crit if c.code == "BP4"), None)
+    pm2 = next((c for c in crit if c.code == "PM2"), None)
+    out = {
+        "stated": stated, "n_codes": len(crit), "points_t": points(crit),
+        "codes": ",".join(f"{c.code}:{c.strength}{'' if c.explicit else '*'}" for c in crit),
+        "has_pp3": pp3 is not None, "pp3_strength": pp3.strength if pp3 else None, "pp3_explicit": bool(pp3 and pp3.explicit),
+        "has_bp4": bp4 is not None, "bp4_strength": bp4.strength if bp4 else None, "bp4_explicit": bool(bp4 and bp4.explicit),
+        "has_pm2": pm2 is not None, "pm2_explicit": bool(pm2 and pm2.explicit),
+    }
+    for tag, rule, pm2_sup in _TAGS:
+        dec = decisive_codes(crit, rule, stated, pm2_sup)
+        out[f"derived_{tag}"] = derive(crit, rule, pm2_sup)
+        out[f"dec_pp3_{tag}"] = "PP3" in dec
+        out[f"dec_bp4_{tag}"] = "BP4" in dec
+        out[f"dec_other_{tag}"] = any(c not in COMPUTATIONAL for c in dec)
+        out[f"decisive_{tag}"] = ",".join(dec)
+    return out

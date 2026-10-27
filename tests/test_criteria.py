@@ -38,9 +38,39 @@ def test_negated_codes_are_dropped(text, kept):
     assert set(codes(text)) == kept
 
 
-def test_repeated_code_keeps_the_strongest_and_pathogenic_stand_alone_is_ignored():
-    assert codes("PM2, PM2_Supporting")["PM2"][1] == "moderate"
-    assert codes("PS3 stand-alone")["PS3"][1] == "strong"  # not a pathogenic strength: keep the default
+def test_repeated_code_prefers_a_stated_strength_then_the_strongest_and_pathogenic_stand_alone_is_ignored():
+    assert codes("PM2, PM2_Supporting")["PM2"] == ("P", "supporting", True)  # a bare mention carries no strength
+    assert codes("PM2_Supporting, PM2")["PM2"] == ("P", "supporting", True)
+    assert codes("PM2_Supporting, PM2_Moderate")["PM2"][1] == "moderate"
+    assert codes("PS3 stand-alone")["PS3"] == ("P", "strong", False)  # not a pathogenic strength: keep the default
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("PM1_STR, PM2_SUP, PP3_MOD, PM3_VSTR", {"PM1": "strong", "PM2": "supporting", "PP3": "moderate", "PM3": "very_strong"}),
+    ("PS4_supp, PP1_Str", {"PS4": "supporting", "PP1": "strong"}),
+    ("PM2 moderated, PS4 supporting", {"PM2": "moderate", "PS4": "supporting"}),
+    ("PP3 (medium pathogenic)", {"PP3": "moderate"}),
+    ("assigned evidence codes ['BS3_Supporti", {"BS3": "supporting"}),
+    ("PM2sup, PM1mod", {"PM2": "supporting", "PM1": "moderate"}),
+    ("PM1 downgraded in strength to Supporting", {"PM1": "supporting"}),
+    ("PS2 downgraded to moderate", {"PS2": "moderate"}),
+    ("PP1 upgraded in strength to Strong", {"PP1": "strong"}),
+    ("PM1-Supporting => PM1 downgraded in strength to Supporting", {"PM1": "supporting"}),
+    ("PS3-Very Strong => PS3 upgraded in strength to Very Strong", {"PS3": "very_strong"}),
+    ("PP3 vs BP4", {"PP3": "supporting", "BP4": "supporting"}),  # " vs " is "versus", not very strong
+    ("PVS1_VS, PS4-P, PM2 (VS)", {"PVS1": "very_strong", "PS4": "supporting", "PM2": "very_strong"}),
+])
+def test_parse_observed_strength_notation(text, expected):
+    assert {c.code: c.strength for c in parse_criteria(text)} == expected
+
+
+@pytest.mark.parametrize("text,kept", [
+    ("ACMG codes: PS2; PS4M; PM2", {"PS2", "PM2"}),  # glued to an unknown suffix: not read as a code
+    ("PM2ndry findings", set()),
+    ("PP31 and BA10", set()),
+])
+def test_codes_glued_to_unknown_text_are_not_codes(text, kept):
+    assert set(codes(text)) == kept
 
 
 @pytest.mark.parametrize("p,cls", [(12, "P"), (10, "P"), (9, "LP"), (6, "LP"), (5, "VUS"), (0, "VUS"), (-1, "LB"), (-6, "LB"), (-7, "B")])
@@ -118,3 +148,22 @@ def test_inconsistent_stated_class_is_never_decisive():
 ])
 def test_stated_family(sig, fam):
     assert stated_family(sig) == fam
+
+
+def test_describe_summarises_one_submission():
+    from rdv.criteria import describe
+
+    d = describe("HFE: PM3:Strong, PM2, PS3:Supporting, BP4", "Likely pathogenic")
+    assert d["stated"] == "PLP" and d["n_codes"] == 4 and d["points_t"] == 6
+    assert d["derived_t"] == "PLP" and d["derived_r"] == "PLP"
+    assert d["has_bp4"] and not d["has_pp3"] and not d["dec_bp4_t"] and d["dec_other_t"]
+    assert d["codes"] == "PM3:strong,PM2:moderate*,PS3:supporting,BP4:supporting*"
+    solo = describe("PP3 only", "Pathogenic")  # one code is kept, because BA1 alone is a complete benign justification
+    assert solo["n_codes"] == 1 and solo["derived_r"] == "VUS" and not solo["dec_pp3_r"]
+    ba1 = describe("BA1", "Benign")
+    assert ba1["derived_r"] == "BLB" and ba1["derived_t"] == "BLB" and ba1["dec_other_r"] and not ba1["dec_bp4_r"]
+    assert ba1["decisive_r"] == "BA1"
+    assert describe("no evidence listed here", "Pathogenic") is None
+    assert describe("PP3 not met", "Pathogenic") is None
+    e = describe("PVS1_Strong, PM2_Supporting, PP3_Moderate", "Pathogenic")
+    assert e["dec_pp3_t"] and e["dec_pp3_r"] and e["pp3_explicit"] and e["pp3_strength"] == "moderate"
